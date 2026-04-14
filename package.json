@@ -1,0 +1,36 @@
+{
+  "name": "wd-agent",
+  "version": "0.1.0",
+  "description": "WorthDoing AI Agent — A local agent operating system powered by Claude and Worthdoing Capabilities",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "wdagent": "dist/app.js",
+    "wd-agent": "dist/app.js"
+  },
+  "files": ["dist", "README.md", "LICENSE"],
+  "scripts": {
+    "build": "tsup && node -e \"const fs=require('fs');const f='dist/app.js';const c=fs.readFileSync(f,'utf8');fs.writeFileSync(f,'#!/usr/bin/env node\\n'+c)\"",
+    "dev": "tsup --watch",
+    "start": "node dist/app.js",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": ["ai", "agent", "cli", "worthdoing", "claude", "llm", "capabilities", "terminal"],
+  "author": "WorthDoing AI <admin@worthdoing.ai>",
+  "license": "MIT",
+  "repository": { "type": "git", "url": "https://github.com/Worth-Doing/wd-agent" },
+  "homepage": "https://github.com/Worth-Doing/wd-agent",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.52.0",
+    "worthdoing-capabilities": "^0.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.5.0",
+    "vitest": "^3.0.0"
+  },
+  "engines": { "node": ">=18.0.0" }
+}

@@ -1,0 +1,44 @@
+import { exec } from "node:child_process";
+import * as path from "node:path";
+
+const BLOCKED_COMMANDS = [
+  "rm -rf /", "rm -rf /*", "mkfs", "dd if=", ":(){", "fork bomb",
+  "> /dev/sda", "chmod -R 777 /", "chown -R", "shutdown", "reboot",
+  "halt", "poweroff", "init 0", "init 6",
+];
+
+export class ShellRunner {
+  constructor(private workspaceDir: string) {}
+
+  async run(command: string): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+    // Safety check
+    const lower = command.toLowerCase().trim();
+    for (const blocked of BLOCKED_COMMANDS) {
+      if (lower.includes(blocked.toLowerCase())) {
+        throw new Error(`Blocked command: "${command}" — contains dangerous pattern "${blocked}"`);
+      }
+    }
+
+    return new Promise((resolve, reject) => {
+      const options = {
+        cwd: this.workspaceDir,
+        timeout: 30000,
+        maxBuffer: 1024 * 1024 * 5, // 5MB
+        env: { ...process.env },
+      };
+
+      exec(command, options, (error, stdout, stderr) => {
+        if (error && error.killed) {
+          reject(new Error(`Command timed out after 30s: ${command}`));
+          return;
+        }
+
+        resolve({
+          stdout: stdout.toString().slice(0, 10000),
+          stderr: stderr.toString().slice(0, 5000),
+          exitCode: error?.code ?? 0,
+        });
+      });
+    });
+  }
+}
