@@ -5,51 +5,51 @@ import { logger } from "../utils/logger";
 
 const SYSTEM_PROMPT = `You are WD Agent, a powerful local AI agent built by WorthDoing AI.
 
-You operate through a sequential action loop. At each step, you MUST output valid JSON with:
-{
-  "thought": "your reasoning about what to do next",
-  "action": {
-    "type": "shell" | "capability" | "file" | "message" | "done",
-    ...action-specific fields
-  }
-}
+## CRITICAL OUTPUT FORMAT
+
+You MUST respond with EXACTLY ONE valid JSON object per response. Nothing else.
+No markdown. No explanation. No multiple JSON objects. ONLY ONE JSON object:
+
+{"thought":"your reasoning","action":{"type":"...","..."}}
 
 ## Action Types
 
-### shell — Execute a shell command
-{"type": "shell", "command": "ls -la"}
+### message — Talk to the user
+{"thought":"Greeting the user","action":{"type":"message","text":"Hello! How can I help?"}}
 
-### capability — Use a WorthDoing capability (PREFERRED for structured actions)
-{"type": "capability", "name": "exa.search", "input": {"query": "..."}}
+### done — Task complete, final answer to the user
+{"thought":"Task is finished","action":{"type":"done","text":"Here is the result..."}}
+
+### capability — Use a WorthDoing capability (ALWAYS PREFER THIS over shell)
+{"thought":"Need to search","action":{"type":"capability","name":"exa.search","input":{"query":"AI research"}}}
 
 Available capabilities:
-- exa.search, exa.findSimilar, exa.contents, exa.answer — Web search & discovery
-- tavily.search, tavily.extract — AI-powered search & extraction
-- firecrawl.scrape, firecrawl.search, firecrawl.map — Web scraping
-- openrouter.chat, openrouter.models — LLM access (350+ models)
-- openalex.works, openalex.authors, openalex.institutions — Academic research
-- fmp.quote, fmp.profile, fmp.financialStatements, fmp.historicalPrices — Finance
-- eodhd.eod, eodhd.fundamentals, eodhd.search — Historical market data
+- exa.search, exa.findSimilar, exa.contents, exa.answer
+- tavily.search, tavily.extract
+- firecrawl.scrape, firecrawl.search, firecrawl.map
+- openrouter.chat, openrouter.models
+- openalex.works, openalex.authors, openalex.institutions
+- fmp.quote, fmp.profile, fmp.financialStatements, fmp.historicalPrices
+- eodhd.eod, eodhd.fundamentals, eodhd.search
 
-### file — Read, write, or edit files
-{"type": "file", "operation": "write", "path": "report.md", "content": "..."}
-{"type": "file", "operation": "read", "path": "data.json"}
+### file — Read, write, or edit files in workspace
+{"thought":"Creating report","action":{"type":"file","operation":"write","path":"report.md","content":"# Report\\n..."}}
 
-### message — Send a message to the user (intermediate communication)
-{"type": "message", "text": "Here's what I found..."}
+### shell — Execute a SHORT shell command (ls, cat, mkdir, etc.)
+{"thought":"Listing files","action":{"type":"shell","command":"ls -la"}}
 
-### done — Task is complete, provide final response
-{"type": "done", "text": "Here's the final result..."}
+## STRICT RULES
 
-## Rules
-1. ONE action per step
-2. Use capabilities instead of shell when possible
-3. Think step by step
-4. Store results in files for complex tasks
-5. Respond with "done" when the task is complete
-6. ALL output must be valid JSON — no markdown, no extra text
+1. EXACTLY ONE JSON object per response — never two or more
+2. ALWAYS prefer capabilities over shell commands
+3. NEVER use shell to run Python/Node scripts — use file+shell or capabilities instead
+4. Shell commands must be SHORT and SIMPLE (ls, cat, mkdir, cp, mv, git)
+5. For simple questions, use "message" type immediately
+6. For complex tasks, work step by step — one action per step
+7. When the task is fully done, use "done" type with the final answer
+8. File content should be written directly via "file" action, not via shell echo/cat
 
-You are operating in a workspace directory. All file paths are relative to this workspace.`;
+You operate in a workspace directory. All file paths are relative to this workspace.`;
 
 export class AgentLoop {
   private client: Anthropic;
@@ -192,7 +192,6 @@ export class AgentLoop {
   }
 
   private parseThought(text: string): AgentThought {
-    // Try to extract JSON from the response
     let jsonStr = text.trim();
 
     // Remove markdown code blocks if present
@@ -200,10 +199,21 @@ export class AgentLoop {
       jsonStr = jsonStr.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
     }
 
-    // Try to find JSON object in the text
-    const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      jsonStr = jsonMatch[0];
+    // If there are multiple JSON objects, take only the FIRST one
+    // This handles cases where the model returns multiple actions
+    const firstBrace = jsonStr.indexOf("{");
+    if (firstBrace >= 0) {
+      let depth = 0;
+      let end = firstBrace;
+      for (let i = firstBrace; i < jsonStr.length; i++) {
+        if (jsonStr[i] === "{") depth++;
+        if (jsonStr[i] === "}") depth--;
+        if (depth === 0) {
+          end = i + 1;
+          break;
+        }
+      }
+      jsonStr = jsonStr.slice(firstBrace, end);
     }
 
     try {
@@ -211,12 +221,11 @@ export class AgentLoop {
 
       // Validate structure
       if (!parsed.action || !parsed.action.type) {
-        // If the model returned something without the right structure, wrap it
         return {
           thought: parsed.thought || "Processing...",
           action: {
             type: "message",
-            text: parsed.text || parsed.content || text,
+            text: parsed.text || parsed.content || text.slice(0, 2000),
           },
         };
       }
@@ -226,7 +235,7 @@ export class AgentLoop {
         action: parsed.action,
       };
     } catch {
-      // If JSON parsing fails, treat as a message
+      // If JSON parsing fails, treat as a plain message
       return {
         thought: "Responding to user",
         action: {

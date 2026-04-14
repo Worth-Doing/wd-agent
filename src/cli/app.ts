@@ -37,16 +37,53 @@ function stripAnsi(str: string): string {
   return str.replace(/\x1b\[[0-9;]*m/g, "");
 }
 
+function wrapText(text: string, maxWidth: number): string[] {
+  if (!text) return [""];
+  const result: string[] = [];
+  for (const rawLine of text.split("\n")) {
+    const cleanLine = stripAnsi(rawLine);
+    if (cleanLine.length <= maxWidth) {
+      result.push(rawLine);
+    } else {
+      // Word wrap
+      const words = rawLine.split(" ");
+      let current = "";
+      for (const word of words) {
+        const testLine = current ? current + " " + word : word;
+        if (stripAnsi(testLine).length > maxWidth && current) {
+          result.push(current);
+          current = word;
+        } else {
+          current = testLine;
+        }
+      }
+      if (current) result.push(current);
+    }
+  }
+  return result;
+}
+
 function box(title: string, lines: string[], color: string = c.dim): string {
-  const width = 52;
+  // Dynamic width based on terminal, capped at 72
+  const termWidth = process.stdout.columns || 80;
+  const width = Math.min(termWidth - 6, 72);
+  const innerWidth = width - 2;
+
   const titleClean = stripAnsi(title);
   const dashCount = Math.max(0, width - titleClean.length - 4);
   const top = `  ${color}\u250c\u2500 ${c.reset}${c.bold}${title}${c.reset}${color} ${"\u2500".repeat(dashCount)}\u2510${c.reset}`;
   const bottom = `  ${color}\u2514${"\u2500".repeat(width)}\u2518${c.reset}`;
-  const body = lines.map((l) => {
+
+  // Wrap all lines
+  const wrappedLines: string[] = [];
+  for (const l of lines) {
+    wrappedLines.push(...wrapText(l, innerWidth));
+  }
+
+  const body = wrappedLines.map((l) => {
     const clean = stripAnsi(l);
-    const padding = Math.max(0, width - 1 - clean.length);
-    return `  ${color}\u2502${c.reset} ${l}${" ".repeat(padding)}${color}\u2502${c.reset}`;
+    const padding = Math.max(0, innerWidth - clean.length);
+    return `  ${color}\u2502${c.reset} ${l}${" ".repeat(padding)} ${color}\u2502${c.reset}`;
   });
   return [top, ...body, bottom].join("\n");
 }

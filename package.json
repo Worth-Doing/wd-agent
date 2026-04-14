@@ -1,6 +1,6 @@
 {
   "name": "wd-agent",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "WorthDoing AI Agent — A local agent operating system powered by Claude and Worthdoing Capabilities",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
