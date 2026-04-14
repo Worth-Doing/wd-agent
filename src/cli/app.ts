@@ -51,6 +51,7 @@ function printHelp(): void {
     ${c.cyan}/list${c.reset}          List conversations
     ${c.cyan}/resume <id>${c.reset}   Resume a conversation
     ${c.cyan}/config${c.reset}        Show/edit configuration
+    ${c.cyan}/model${c.reset}         Change model (with OpenRouter model browser)
     ${c.cyan}/caps${c.reset}          List available capabilities
     ${c.cyan}/steps${c.reset}         Show steps in current conversation
     ${c.cyan}/clear${c.reset}         Clear screen
@@ -61,17 +62,148 @@ function printHelp(): void {
 }
 
 // ---------------------------------------------------------------------------
-// API key prompt
+// Setup prompts
 // ---------------------------------------------------------------------------
-async function promptApiKey(rl: readline.Interface): Promise<string> {
+function ask(rl: readline.Interface, question: string): Promise<string> {
   return new Promise((resolve) => {
-    console.log(`\n  ${c.yellow}${c.bold}API Key Required${c.reset}`);
-    console.log(`  ${c.dim}Enter your Anthropic API key to get started.${c.reset}`);
-    console.log(`  ${c.dim}Get one at: https://console.anthropic.com/settings/keys${c.reset}\n`);
-    rl.question(`  ${c.cyan}API Key: ${c.reset}`, (answer) => {
-      resolve(answer.trim());
-    });
+    rl.question(question, (answer) => resolve(answer.trim()));
   });
+}
+
+async function setupProvider(rl: readline.Interface): Promise<{ provider: "anthropic" | "openrouter"; apiKey: string; model: string }> {
+  console.log(`\n  ${c.yellow}${c.bold}Setup Required${c.reset}`);
+  console.log(`  ${c.dim}Choose your AI provider to get started.${c.reset}\n`);
+  console.log(`  ${c.cyan}1${c.reset}  Anthropic (Claude API direct)`);
+  console.log(`  ${c.cyan}2${c.reset}  OpenRouter (350+ models — Claude, GPT, Gemini, Llama, etc.)\n`);
+
+  const choice = await ask(rl, `  ${c.cyan}Choice [1/2]: ${c.reset}`);
+
+  if (choice === "2") {
+    // OpenRouter flow
+    console.log(`\n  ${c.dim}Get an API key at: https://openrouter.ai/settings/keys${c.reset}\n`);
+    const apiKey = await ask(rl, `  ${c.cyan}OpenRouter API Key: ${c.reset}`);
+    if (!apiKey) throw new Error("No API key provided");
+
+    // Fetch models from OpenRouter
+    console.log(`\n  ${c.dim}Fetching available models...${c.reset}`);
+    const model = await selectOpenRouterModel(rl, apiKey);
+
+    return { provider: "openrouter", apiKey, model };
+  }
+
+  // Anthropic flow
+  console.log(`\n  ${c.dim}Get an API key at: https://console.anthropic.com/settings/keys${c.reset}\n`);
+  const apiKey = await ask(rl, `  ${c.cyan}Anthropic API Key: ${c.reset}`);
+  if (!apiKey) throw new Error("No API key provided");
+
+  return { provider: "anthropic", apiKey, model: "claude-opus-4-6" };
+}
+
+async function selectOpenRouterModel(rl: readline.Interface, apiKey: string): Promise<string> {
+  try {
+    const response = await fetch("https://openrouter.ai/api/v1/models", {
+      headers: { "Authorization": `Bearer ${apiKey}` },
+    });
+    const data = await response.json() as any;
+    const models: { id: string; name: string; context: number; pricing: string }[] = [];
+
+    for (const m of (data.data || [])) {
+      models.push({
+        id: m.id,
+        name: m.name || m.id,
+        context: m.context_length || 0,
+        pricing: m.pricing?.prompt || "0",
+      });
+    }
+
+    // Group by provider
+    const providers = new Map<string, typeof models>();
+    for (const m of models) {
+      const provider = m.id.split("/")[0];
+      if (!providers.has(provider)) providers.set(provider, []);
+      providers.get(provider)!.push(m);
+    }
+
+    // Show popular models first
+    const popular = [
+      "anthropic/claude-opus-4-6",
+      "anthropic/claude-sonnet-4-6",
+      "anthropic/claude-haiku-4-5",
+      "openai/gpt-4.1",
+      "openai/gpt-4.1-mini",
+      "openai/o3",
+      "openai/o4-mini",
+      "google/gemini-2.5-pro-preview",
+      "google/gemini-2.5-flash",
+      "meta-llama/llama-4-maverick",
+      "deepseek/deepseek-r1",
+      "mistralai/mistral-large",
+    ];
+
+    const availablePopular = popular.filter((id) => models.some((m) => m.id === id));
+
+    console.log(`\n  ${c.bold}${models.length} models available${c.reset}\n`);
+    console.log(`  ${c.bold}Popular models:${c.reset}\n`);
+
+    availablePopular.forEach((id, i) => {
+      const m = models.find((m) => m.id === id);
+      if (m) {
+        console.log(`  ${c.cyan}${String(i + 1).padStart(2)}${c.reset}  ${c.bold}${m.id}${c.reset}  ${c.dim}(${(m.context / 1000).toFixed(0)}K ctx)${c.reset}`);
+      }
+    });
+
+    console.log(`\n  ${c.dim}Or type a model ID directly (e.g. anthropic/claude-opus-4-6)${c.reset}\n`);
+
+    const selection = await ask(rl, `  ${c.cyan}Model [number or ID]: ${c.reset}`);
+
+    // Parse selection
+    const num = parseInt(selection, 10);
+    if (!isNaN(num) && num >= 1 && num <= availablePopular.length) {
+      const selected = availablePopular[num - 1];
+      console.log(`  ${c.green}✓${c.reset} Selected: ${c.bold}${selected}${c.reset}`);
+      return selected;
+    }
+
+    // Check if it's a valid model ID
+    if (selection.includes("/")) {
+      const exists = models.some((m) => m.id === selection);
+      if (exists) {
+        console.log(`  ${c.green}✓${c.reset} Selected: ${c.bold}${selection}${c.reset}`);
+        return selection;
+      }
+      // Even if not found in list, trust the user
+      console.log(`  ${c.yellow}⚠${c.reset} Model not found in catalog, using anyway: ${c.bold}${selection}${c.reset}`);
+      return selection;
+    }
+
+    // Search by name
+    const matches = models.filter((m) =>
+      m.id.toLowerCase().includes(selection.toLowerCase()) ||
+      m.name.toLowerCase().includes(selection.toLowerCase())
+    ).slice(0, 10);
+
+    if (matches.length > 0) {
+      console.log(`\n  ${c.bold}Matching models:${c.reset}\n`);
+      matches.forEach((m, i) => {
+        console.log(`  ${c.cyan}${String(i + 1).padStart(2)}${c.reset}  ${c.bold}${m.id}${c.reset}  ${c.dim}${m.name}${c.reset}`);
+      });
+
+      const pick = await ask(rl, `\n  ${c.cyan}Pick [1-${matches.length}]: ${c.reset}`);
+      const pickNum = parseInt(pick, 10);
+      if (!isNaN(pickNum) && pickNum >= 1 && pickNum <= matches.length) {
+        const selected = matches[pickNum - 1].id;
+        console.log(`  ${c.green}✓${c.reset} Selected: ${c.bold}${selected}${c.reset}`);
+        return selected;
+      }
+    }
+
+    // Default
+    console.log(`  ${c.dim}Defaulting to anthropic/claude-opus-4-6${c.reset}`);
+    return "anthropic/claude-opus-4-6";
+  } catch (err) {
+    console.log(`  ${c.yellow}Could not fetch models. Defaulting to anthropic/claude-opus-4-6${c.reset}`);
+    return "anthropic/claude-opus-4-6";
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -310,14 +442,39 @@ async function interactiveLoop(
             break;
           }
 
+          case "model": {
+            const curConfig = loadConfig();
+            if (curConfig.provider === "openrouter" && curConfig.openrouterApiKey) {
+              const newModel = await selectOpenRouterModel(rl, curConfig.openrouterApiKey);
+              saveConfig({ model: newModel });
+              config = loadConfig();
+              loop = new AgentLoop(config, conv);
+              console.log(`\n  ${c.green}\u2713${c.reset} Model changed to: ${c.bold}${newModel}${c.reset}`);
+            } else if (cmdArgs[0]) {
+              saveConfig({ model: cmdArgs[0] });
+              config = loadConfig();
+              loop = new AgentLoop(config, conv);
+              console.log(`\n  ${c.green}\u2713${c.reset} Model changed to: ${c.bold}${cmdArgs[0]}${c.reset}`);
+            } else {
+              console.log(`\n  ${c.dim}Current model: ${curConfig.model}${c.reset}`);
+              console.log(`  ${c.dim}Usage: /model <model-id>${c.reset}`);
+              console.log(`  ${c.dim}Use OpenRouter provider for interactive model browser.${c.reset}`);
+            }
+            break;
+          }
+
           case "config": {
             const currentConfig = loadConfig();
             console.log(`\n  ${c.bold}Configuration:${c.reset}\n`);
+            console.log(`  ${c.dim}Provider:${c.reset}    ${currentConfig.provider}`);
             console.log(`  ${c.dim}Model:${c.reset}       ${currentConfig.model}`);
             console.log(`  ${c.dim}Max Steps:${c.reset}   ${currentConfig.maxSteps}`);
             console.log(`  ${c.dim}Confirm:${c.reset}     ${currentConfig.confirmShell}`);
             console.log(
-              `  ${c.dim}API Key:${c.reset}     ${currentConfig.anthropicApiKey ? "\u2713 Set" : "\u2717 Not set"}`,
+              `  ${c.dim}Anthropic:${c.reset}   ${currentConfig.anthropicApiKey ? "\u2713 Set" : "\u2717 Not set"}`,
+            );
+            console.log(
+              `  ${c.dim}OpenRouter:${c.reset}  ${currentConfig.openrouterApiKey ? "\u2713 Set" : "\u2717 Not set"}`,
             );
             break;
           }
@@ -372,20 +529,36 @@ async function main(): Promise<void> {
   clearScreen();
   printBanner();
 
-  // ---- API key ----
+  // ---- API key / Provider setup ----
 
   let config = loadConfig();
-  if (!config.anthropicApiKey) {
-    const key = await promptApiKey(rl);
-    if (!key) {
-      console.log(`\n  ${c.red}No API key provided. Exiting.${c.reset}\n`);
+  const hasKey = config.anthropicApiKey || config.openrouterApiKey;
+
+  if (!hasKey) {
+    try {
+      const setup = await setupProvider(rl);
+      if (setup.provider === "openrouter") {
+        saveConfig({
+          provider: "openrouter",
+          openrouterApiKey: setup.apiKey,
+          model: setup.model,
+        });
+      } else {
+        saveConfig({
+          provider: "anthropic",
+          anthropicApiKey: setup.apiKey,
+          model: setup.model,
+        });
+      }
+      config = loadConfig();
+      console.log(`\n  ${c.green}\u2713${c.reset} Configuration saved to ~/.wdagent/config.json\n`);
+    } catch {
+      console.log(`\n  ${c.red}Setup failed. Exiting.${c.reset}\n`);
       process.exit(1);
     }
-    saveConfig({ anthropicApiKey: key });
-    config = loadConfig();
-    console.log(`  ${c.green}\u2713${c.reset} API key saved to ~/.wdagent/config.json\n`);
   } else {
-    console.log(`  ${c.green}\u2713${c.reset} API key loaded from ~/.wdagent/config.json\n`);
+    const providerLabel = config.provider === "openrouter" ? "OpenRouter" : "Anthropic";
+    console.log(`  ${c.green}\u2713${c.reset} ${providerLabel} configured — model: ${c.bold}${config.model}${c.reset}\n`);
   }
 
   // ---- Conversation manager ----

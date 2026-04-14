@@ -56,11 +56,23 @@ export class AgentLoop {
   private executor: ActionExecutor;
   private conversation: any;
   private model: string;
+  private provider: "anthropic" | "openrouter";
   private stepCount: number = 0;
 
   constructor(config: any, conversation: any) {
-    this.client = new Anthropic({ apiKey: config.anthropicApiKey });
-    this.model = config.model || "claude-opus-4-6-20250219";
+    this.provider = config.provider || "anthropic";
+    this.model = config.model || "claude-opus-4-6";
+
+    if (this.provider === "openrouter") {
+      // Use OpenRouter as backend via Anthropic SDK compatibility
+      this.client = new Anthropic({
+        apiKey: config.openrouterApiKey,
+        baseURL: "https://openrouter.ai/api/v1",
+      });
+    } else {
+      this.client = new Anthropic({ apiKey: config.anthropicApiKey });
+    }
+
     this.conversation = conversation;
     this.executor = new ActionExecutor(
       conversation.workspacePath,

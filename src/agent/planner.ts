@@ -70,7 +70,7 @@ export class Planner {
 
   constructor(apiKey: string, model?: string) {
     this.client = new Anthropic({ apiKey });
-    this.model = model || "claude-opus-4-6-20250219";
+    this.model = model || "claude-opus-4-6";
   }
 
   /**

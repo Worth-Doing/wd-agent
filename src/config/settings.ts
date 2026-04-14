@@ -4,6 +4,8 @@ import * as os from "node:os";
 
 export interface AgentConfig {
   anthropicApiKey: string;
+  openrouterApiKey: string;
+  provider: "anthropic" | "openrouter";
   apiKeys: {
     exa?: string;
     tavily?: string;
@@ -24,8 +26,10 @@ const CONFIG_FILE = path.join(CONFIG_DIR, "config.json");
 
 const DEFAULT_CONFIG: AgentConfig = {
   anthropicApiKey: "",
+  openrouterApiKey: "",
+  provider: "anthropic",
   apiKeys: {},
-  model: "claude-opus-4-6-20250219",
+  model: "claude-opus-4-6",
   maxSteps: 50,
   confirmShell: true,
   conversationsDir: path.join(process.cwd(), ".conversations"),
