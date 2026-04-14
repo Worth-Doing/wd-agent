@@ -3,53 +3,52 @@ import { AgentAction, AgentThought, StepRecord } from "./types";
 import { ActionExecutor } from "../runtime/executor";
 import { logger } from "../utils/logger";
 
-const SYSTEM_PROMPT = `You are WD Agent, a powerful local AI agent built by WorthDoing AI.
+const SYSTEM_PROMPT = `You are WD Agent by WorthDoing AI. You execute tasks step by step.
 
-## CRITICAL OUTPUT FORMAT
+# OUTPUT FORMAT (MANDATORY)
 
-You MUST respond with EXACTLY ONE valid JSON object per response. Nothing else.
-No markdown. No explanation. No multiple JSON objects. ONLY ONE JSON object:
+Respond with ONE raw JSON object. No markdown. No \`\`\`. No explanation before or after.
 
-{"thought":"your reasoning","action":{"type":"...","..."}}
+{"thought":"why you are doing this","action":{"type":"...","..."}}
 
-## Action Types
+# AVAILABLE ACTIONS
 
-### message — Talk to the user
-{"thought":"Greeting the user","action":{"type":"message","text":"Hello! How can I help?"}}
+## message — Reply to the user
+{"thought":"greeting","action":{"type":"message","text":"Hello!"}}
 
-### done — Task complete, final answer to the user
-{"thought":"Task is finished","action":{"type":"done","text":"Here is the result..."}}
+## done — Task finished, final answer
+{"thought":"completed","action":{"type":"done","text":"Here is the result."}}
 
-### capability — Use a WorthDoing capability (ALWAYS PREFER THIS over shell)
-{"thought":"Need to search","action":{"type":"capability","name":"exa.search","input":{"query":"AI research"}}}
+## capability — Call a WorthDoing API capability
+{"thought":"searching web","action":{"type":"capability","name":"exa.search","input":{"query":"AI news"}}}
 
-Available capabilities:
-- exa.search, exa.findSimilar, exa.contents, exa.answer
-- tavily.search, tavily.extract
-- firecrawl.scrape, firecrawl.search, firecrawl.map
-- openrouter.chat, openrouter.models
-- openalex.works, openalex.authors, openalex.institutions
-- fmp.quote, fmp.profile, fmp.financialStatements, fmp.historicalPrices
-- eodhd.eod, eodhd.fundamentals, eodhd.search
+### Capability catalog:
+SEARCH: exa.search, exa.findSimilar, exa.contents, exa.answer, tavily.search, tavily.extract
+SCRAPING: firecrawl.scrape, firecrawl.search, firecrawl.map
+LLM: openrouter.chat, openrouter.models
+RESEARCH: openalex.works, openalex.authors, openalex.institutions
+FINANCE: fmp.quote, fmp.profile, fmp.financialStatements, fmp.historicalPrices, eodhd.eod, eodhd.fundamentals, eodhd.search
 
-### file — Read, write, or edit files in workspace
-{"thought":"Creating report","action":{"type":"file","operation":"write","path":"report.md","content":"# Report\\n..."}}
+## file — Create/read/edit files in workspace
+{"thought":"writing report","action":{"type":"file","operation":"write","path":"report.md","content":"# My Report\\nContent here..."}}
+{"thought":"reading file","action":{"type":"file","operation":"read","path":"data.json"}}
 
-### shell — Execute a SHORT shell command (ls, cat, mkdir, etc.)
-{"thought":"Listing files","action":{"type":"shell","command":"ls -la"}}
+## shell — Run a simple shell command
+{"thought":"checking files","action":{"type":"shell","command":"ls -la"}}
 
-## STRICT RULES
+# RULES
 
-1. EXACTLY ONE JSON object per response — never two or more
-2. ALWAYS prefer capabilities over shell commands
-3. NEVER use shell to run Python/Node scripts — use file+shell or capabilities instead
-4. Shell commands must be SHORT and SIMPLE (ls, cat, mkdir, cp, mv, git)
-5. For simple questions, use "message" type immediately
-6. For complex tasks, work step by step — one action per step
-7. When the task is fully done, use "done" type with the final answer
-8. File content should be written directly via "file" action, not via shell echo/cat
+1. Output EXACTLY ONE JSON object. Not two. Not three. ONE.
+2. No markdown fences (\`\`\`). No text outside the JSON.
+3. For simple questions, reply with "message" or "done" immediately.
+4. For tasks requiring multiple steps, do ONE action per response. You will get the result back and can continue.
+5. Use "file" action to create documents. Write the full content directly in the "content" field.
+6. Use "shell" ONLY for simple commands: ls, cat, head, mkdir, cp, mv, wc, grep, find, git.
+7. NEVER run python/node/ruby scripts via shell. Create files via "file" action instead.
+8. ALWAYS use capabilities for API calls (search, finance, scraping). Never curl.
+9. When task is complete, use "done" with a clear summary.
 
-You operate in a workspace directory. All file paths are relative to this workspace.`;
+You work in an isolated workspace directory. All paths are relative.`;
 
 export class AgentLoop {
   private client: Anthropic;
@@ -64,7 +63,6 @@ export class AgentLoop {
     this.model = config.model || "claude-opus-4-6";
 
     if (this.provider === "openrouter") {
-      // Use OpenRouter as backend via Anthropic SDK compatibility
       this.client = new Anthropic({
         apiKey: config.openrouterApiKey,
         baseURL: "https://openrouter.ai/api/v1",
@@ -79,12 +77,10 @@ export class AgentLoop {
       config.apiKeys || {},
     );
 
-    // Restore step count from conversation
     this.stepCount = conversation.getSteps().length;
   }
 
   async step(userMessage?: string): Promise<StepRecord> {
-    // Add user message to history if provided
     if (userMessage) {
       this.conversation.addMessage({
         role: "user",
@@ -93,72 +89,82 @@ export class AgentLoop {
       });
     }
 
-    // Build messages for Claude
+    // Build messages
     const history = this.conversation.getHistory();
     const steps = this.conversation.getSteps();
-
     const messages: { role: "user" | "assistant"; content: string }[] = [];
 
-    // Add conversation history
-    for (const msg of history) {
-      if (msg.role === "user") {
-        messages.push({ role: "user", content: msg.content });
-      } else if (msg.role === "assistant") {
-        messages.push({ role: "assistant", content: msg.content });
+    // Add history (keep last 20 messages to avoid overflow)
+    const recentHistory = history.slice(-20);
+    for (const msg of recentHistory) {
+      if (msg.role === "user" || msg.role === "assistant") {
+        messages.push({ role: msg.role, content: msg.content });
       }
     }
 
-    // Add recent step results as context
+    // If continuing from a previous step (no new user message), inject result
     if (steps.length > 0 && !userMessage) {
       const lastStep = steps[steps.length - 1];
-      const resultSummary = JSON.stringify({
-        previous_action: lastStep.action,
-        result: lastStep.result,
+      const resultStr = JSON.stringify({
+        step_completed: lastStep.step,
+        action_was: { type: lastStep.action.type, name: lastStep.action.name },
+        success: lastStep.result.success,
+        output: lastStep.result.output,
+        error: lastStep.result.error,
       });
       messages.push({
         role: "user",
-        content: `Previous step result:\n${resultSummary}\n\nDecide what to do next. Output valid JSON.`,
+        content: `Step ${lastStep.step} result: ${resultStr}\n\nContinue with the next action. Output ONE JSON object.`,
       });
     }
 
-    // Ensure messages alternate correctly
+    // Ensure at least one message
     if (messages.length === 0) {
       messages.push({ role: "user", content: "Hello" });
     }
 
-    // Call Claude
-    const start = Date.now();
-    let thought: AgentThought;
+    // Ensure messages alternate (Claude requirement)
+    const cleaned: typeof messages = [];
+    for (const msg of messages) {
+      if (cleaned.length === 0 || cleaned[cleaned.length - 1].role !== msg.role) {
+        cleaned.push(msg);
+      } else {
+        // Merge consecutive same-role messages
+        cleaned[cleaned.length - 1].content += "\n" + msg.content;
+      }
+    }
+    // Must start with user
+    if (cleaned.length > 0 && cleaned[0].role !== "user") {
+      cleaned.unshift({ role: "user", content: "(conversation start)" });
+    }
 
+    // Call Claude
+    let thought: AgentThought;
     try {
       const response = await this.client.messages.create({
         model: this.model,
         max_tokens: 4096,
         system: SYSTEM_PROMPT,
-        messages,
+        messages: cleaned,
       });
 
       const text = response.content
-        .filter(
-          (block): block is Anthropic.TextBlock => block.type === "text",
-        )
+        .filter((block): block is Anthropic.TextBlock => block.type === "text")
         .map((block) => block.text)
         .join("");
 
-      // Parse JSON response
       thought = this.parseThought(text);
     } catch (err: any) {
       logger.log("error", "Model call failed", { error: err.message });
       throw new Error(`Model error: ${err.message}`);
     }
 
-    // Execute the action
+    // Execute
     this.stepCount++;
     const execStart = Date.now();
     const result = await this.executor.execute(thought.action);
     const duration = Date.now() - execStart;
 
-    // Create step record
     const record: StepRecord = {
       step: this.stepCount,
       timestamp: new Date().toISOString(),
@@ -172,10 +178,7 @@ export class AgentLoop {
       },
     };
 
-    // Store in conversation
     this.conversation.addStep(record);
-
-    // Add assistant message to history
     this.conversation.addMessage({
       role: "assistant",
       content: JSON.stringify(thought),
@@ -192,56 +195,78 @@ export class AgentLoop {
   }
 
   private parseThought(text: string): AgentThought {
-    let jsonStr = text.trim();
+    let cleaned = text.trim();
 
-    // Remove markdown code blocks if present
-    if (jsonStr.startsWith("```")) {
-      jsonStr = jsonStr.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
+    // Strip ALL markdown code fences aggressively
+    cleaned = cleaned.replace(/```json\s*/g, "").replace(/```\s*/g, "");
+
+    // Find the first complete JSON object using brace matching
+    const start = cleaned.indexOf("{");
+    if (start === -1) {
+      // No JSON at all — treat entire text as a message
+      return {
+        thought: "Responding to user",
+        action: { type: "message", text: cleaned.slice(0, 3000) },
+      };
     }
 
-    // If there are multiple JSON objects, take only the FIRST one
-    // This handles cases where the model returns multiple actions
-    const firstBrace = jsonStr.indexOf("{");
-    if (firstBrace >= 0) {
-      let depth = 0;
-      let end = firstBrace;
-      for (let i = firstBrace; i < jsonStr.length; i++) {
-        if (jsonStr[i] === "{") depth++;
-        if (jsonStr[i] === "}") depth--;
+    let depth = 0;
+    let end = start;
+    let inString = false;
+    let escape = false;
+
+    for (let i = start; i < cleaned.length; i++) {
+      const ch = cleaned[i];
+
+      if (escape) {
+        escape = false;
+        continue;
+      }
+      if (ch === "\\") {
+        escape = true;
+        continue;
+      }
+      if (ch === '"') {
+        inString = !inString;
+        continue;
+      }
+      if (inString) continue;
+
+      if (ch === "{") depth++;
+      if (ch === "}") {
+        depth--;
         if (depth === 0) {
           end = i + 1;
           break;
         }
       }
-      jsonStr = jsonStr.slice(firstBrace, end);
     }
+
+    const jsonStr = cleaned.slice(start, end);
 
     try {
       const parsed = JSON.parse(jsonStr);
 
-      // Validate structure
-      if (!parsed.action || !parsed.action.type) {
+      if (parsed.action && parsed.action.type) {
         return {
-          thought: parsed.thought || "Processing...",
-          action: {
-            type: "message",
-            text: parsed.text || parsed.content || text.slice(0, 2000),
-          },
+          thought: parsed.thought || "",
+          action: parsed.action,
         };
       }
 
+      // Has thought but no proper action
       return {
-        thought: parsed.thought || "",
-        action: parsed.action,
-      };
-    } catch {
-      // If JSON parsing fails, treat as a plain message
-      return {
-        thought: "Responding to user",
+        thought: parsed.thought || "Processing",
         action: {
           type: "message",
-          text: text,
+          text: parsed.text || parsed.content || jsonStr.slice(0, 2000),
         },
+      };
+    } catch {
+      // JSON parse failed — return as message
+      return {
+        thought: "Responding to user",
+        action: { type: "message", text: text.slice(0, 3000) },
       };
     }
   }
