@@ -5,11 +5,11 @@
 <h1 align="center">WD Agent</h1>
 
 <p align="center">
-  <strong>A local AI agent operating system for your terminal.</strong>
+  <strong>A local AI agent operating system for your terminal — powered by native tool_use.</strong>
 </p>
 
 <p align="center">
-  <em>Think. Act. Execute. Persist. — All powered by Claude and WorthDoing Capabilities.</em>
+  <em>Think. Act. Execute. Persist. — All powered by Claude's structured tool_use API and WorthDoing Capabilities.</em>
 </p>
 
 <br />
@@ -20,6 +20,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Built%20by-WorthDoing.ai-0055FF?style=for-the-badge&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCI+PHJlY3Qgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0IiByeD0iNCIgZmlsbD0iIzAwNTVGRiIvPjx0ZXh0IHg9IjUiIHk9IjE4IiBmb250LXNpemU9IjE2IiBmb250LXdlaWdodD0iYm9sZCIgZmlsbD0id2hpdGUiPnc8L3RleHQ+PC9zdmc+" alt="Built by WorthDoing.ai" />
+  <img src="https://img.shields.io/badge/v1.0.0-00C853?style=for-the-badge" alt="v1.0.0" />
   <img src="https://img.shields.io/badge/Claude%20Opus%204.6-191919?style=for-the-badge&logo=anthropic&logoColor=white" alt="Claude Opus 4.6" />
   <img src="https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white" alt="TypeScript" />
   <img src="https://img.shields.io/badge/Node%2018%2B-339933?style=for-the-badge&logo=node.js&logoColor=white" alt="Node 18+" />
@@ -29,6 +30,9 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/22%2B%20Capabilities-6C47FF?style=flat-square" alt="22+ Capabilities" />
+  <img src="https://img.shields.io/badge/Native%20tool__use-FF6D00?style=flat-square" alt="Native tool_use" />
+  <img src="https://img.shields.io/badge/Context%20auto--compaction-00897B?style=flat-square" alt="Context auto-compaction" />
+  <img src="https://img.shields.io/badge/Token%20tracking-E91E63?style=flat-square" alt="Token tracking" />
   <img src="https://img.shields.io/badge/Local--first-22C55E?style=flat-square" alt="Local-first" />
   <img src="https://img.shields.io/badge/Zero%20cloud%20dependency-16A34A?style=flat-square" alt="Zero cloud dependency" />
   <img src="https://img.shields.io/badge/OpenRouter%20350%2B%20models-7C3AED?style=flat-square" alt="OpenRouter 350+ models" />
@@ -47,19 +51,24 @@
 
 **WD Agent is NOT a chatbot.** It is a **local agent operating system** that runs entirely on your machine, using large language models as a reasoning engine and WorthDoing Capabilities as an execution layer.
 
+**v1.0.0** marks a fundamental architecture shift: the engine now communicates with Claude through Anthropic's **native `tool_use` API** instead of prompting for raw JSON. Claude returns structured `ToolUseBlock` objects that are dispatched directly -- no regex parsing, no markdown fence extraction, no fragility. Context is managed automatically via **auto-compaction** inspired by the Claude Code architecture, keeping long sessions efficient without manual intervention.
+
 ### The Agent Loop
 
 WD Agent operates through a continuous **Think --> Act --> Observe --> Persist** loop:
 
-1. **Think** -- Claude Opus 4.6 (or any of 350+ models via OpenRouter) reasons about your request, analyzes prior results, and decides the single best next action.
-2. **Act** -- The chosen action is executed locally: a shell command, a capability call, a file operation, or a sub-agent delegation.
-3. **Observe** -- The result of the action (stdout, API response, file contents) is captured and fed back into the conversation context.
-4. **Persist** -- Every thought, action, and result is recorded in structured JSON files on disk. Nothing is ephemeral. Everything is replayable.
+1. **Think** -- Claude Opus 4.6 (or any of 350+ models via OpenRouter) reasons about your request, analyzes prior results, and selects a tool call as its next action.
+2. **Act** -- The selected tool is executed locally: a shell command, a capability call, a file operation, or a direct response.
+3. **Observe** -- The result of the tool execution (stdout, API response, file contents) is sent back to Claude via the `tool_result` protocol.
+4. **Persist** -- Every thought, tool call, and result is recorded in structured JSON files on disk. Nothing is ephemeral. Everything is replayable.
 
-The loop continues autonomously until the task is complete or the agent explicitly signals `done`. There is no parallelism, no background jobs, no async fan-out. Each step completes fully before the next begins. This makes every session **deterministic, debuggable, and auditable**.
+The loop continues autonomously until the task is complete or the agent explicitly calls `task_complete`. There is no parallelism, no background jobs, no async fan-out. Each step completes fully before the next begins. This makes every session **deterministic, debuggable, and auditable**.
 
 ### Design Principles
 
+- **Native tool_use, not JSON prompting.** All agent actions are declared as Anthropic tools. Claude returns structured `ToolUseBlock` objects that are dispatched without parsing. Results flow back via `tool_result` messages.
+- **Context auto-compaction.** When conversation context exceeds ~80K tokens, older messages are automatically summarized and replaced, keeping the agent responsive across long sessions.
+- **Token-aware execution.** Every API call tracks input tokens, output tokens, and estimated cost. Session totals are always visible.
 - **Never hardcodes API calls.** All external service access goes through the WorthDoing Capabilities SDK, ensuring a unified interface, consistent error handling, and clean separation of concerns.
 - **Shell execution with safety controls.** Dangerous commands are blocked. User confirmation is required by default. Output is truncated to prevent memory issues.
 - **File operations with workspace isolation.** Path traversal is blocked. All reads and writes are confined to the conversation workspace directory.
@@ -67,15 +76,17 @@ The loop continues autonomously until the task is complete or the agent explicit
 
 ### What Makes WD Agent Different?
 
-| Traditional Chatbot | WD Agent |
+| Traditional Chatbot | WD Agent v1.0.0 |
 |:-----|:-----|
-| Generates text and stops | Executes a multi-step plan autonomously |
+| Generates text and stops | Executes a multi-step plan autonomously via native tool_use |
+| Fragile JSON parsing of LLM output | Structured ToolUseBlock dispatch -- zero parsing errors |
+| No context management | Auto-compaction at ~80K tokens, inspired by Claude Code |
+| No cost visibility | Real-time token tracking with per-response and session totals |
 | No access to external tools | 22+ capabilities spanning search, finance, research, scraping, and LLMs |
 | Cloud-hosted, opaque | Local-first, fully inspectable, every step logged to disk |
 | Single model, single provider | Dual provider support -- Anthropic direct or OpenRouter with 350+ models |
 | No persistent state | File-based conversation memory with resume, replay, and branching |
 | No file output | Creates real files, runs real commands, produces real deliverables |
-| No sub-task delegation | Spawns sub-agents for parallel workstreams |
 
 <br />
 
@@ -91,9 +102,279 @@ npm install -g wd-agent
 
 # Launch interactive agent
 wdagent
+```
 
-# Or run a task directly
-wdagent run "Research the top 5 AI frameworks and write a comparison report"
+<br />
+
+---
+
+<br />
+
+## Architecture
+
+```
+User --> CLI --> Agent Loop --> Claude (tool_use API)
+                    |               ^
+             Action Executor    tool_result
+            +-------+-------+
+         Shell  Capabilities  Files
+                    |
+      WorthDoing Capabilities SDK
+```
+
+### Detailed Architecture
+
+```
+                        +-------------+
+                        |   You (CLI) |
+                        +------+------+
+                               |
+                        +------v------+
+                        |  Agent Loop |
+                        |  +--------+ |
+                        |  | Think  |-+---> Claude Opus 4.6 (tool_use API)
+                        |  | Act    | |    (or any OpenRouter model)
+                        |  |Observe | |        |
+                        |  |Persist | |   tool_result
+                        |  +--------+ |        |
+                        +------+------+<-------+
+                               |
+                  +------------+------------+
+                  |            |            |
+            +-----v-----+ +---v---+ +-----v------+
+            |   Shell    | | Files | | Capabilities|
+            |  Executor  | |Handler| |   Bridge    |
+            +-----------+ +-------+ +-----+------+
+                                          |
+                        +-----------------v------------------+
+                        |     WorthDoing Capabilities SDK     |
+                        +------------------------------------+
+                        | Exa . Tavily . Firecrawl            |
+                        | OpenRouter . OpenAlex               |
+                        | FMP . EODHD . Documents             |
+                        +------------------------------------+
+```
+
+### Data Flow (Native tool_use)
+
+```
+ User Input
+     |
+     v
+ +------------------+    +----------------------+    +-------------------+
+ |  1. Build Context |--->|  2. Send to Claude   |--->|  3. Receive       |
+ |  (system prompt + |    |  (messages array +   |    |  ToolUseBlock     |
+ |   history +       |    |   tools definition)  |    |  {name, input}    |
+ |   tool_results)   |    |                      |    |                   |
+ +------------------+    +----------------------+    +--------+----------+
+                                                              |
+ +------------------+    +----------------------+    +--------v----------+
+ |  6. Loop back or |<---|  5. Send tool_result  |<---|  4. Execute the   |
+ |  task_complete    |    |  message back to      |    |  tool (shell /    |
+ |  to user          |    |  Claude               |    |  capability /     |
+ +------------------+    +----------------------+    |  file / respond)  |
+                                                      +-------------------+
+```
+
+### Context Compaction Flow
+
+```
+ Context exceeds ~80K tokens
+     |
+     v
+ +------------------------+    +-------------------------+
+ | Summarize older msgs   |--->| Replace with compact    |
+ | (keep last 6 messages) |    | summary message         |
+ +------------------------+    +-------------------------+
+     |
+     v
+ Continue agent loop with reduced context
+ (token savings logged to session)
+```
+
+### Persistence Layer
+
+```
+.conversations/
++-- a1b2c3d4-5678-90ab-cdef-1234567890ab/
+    +-- history.json      Full message log (user + assistant + tool_use + tool_result)
+    +-- steps.json        Every think/act/observe cycle with timing
+    +-- agent.log         Structured debug log (JSON lines)
+    +-- report.md         Example: a file the agent created
+    +-- data/
+        +-- prices.csv    Example: another file the agent created
+```
+
+<br />
+
+---
+
+<br />
+
+## Native Tool Use
+
+**v1.0.0 replaces raw JSON prompting with Anthropic's native `tool_use` protocol.** This is the single largest architectural change in the project's history.
+
+### The Problem with JSON Prompting (v0.x)
+
+In previous versions, the system prompt instructed Claude to return a JSON object with `thought` and `action` fields. The agent had to:
+
+- Parse raw text output as JSON
+- Handle markdown code fences (```` ```json ... ``` ````) wrapping the response
+- Deal with multiple JSON objects in a single response
+- Recover from malformed JSON, trailing commas, unescaped strings
+- Retry on parse failures, wasting tokens and latency
+
+### The tool_use Solution (v1.0.0)
+
+Claude now receives a formal `tools` array defining each action as a typed tool with a JSON Schema for its input. When Claude decides to act, it returns a `ToolUseBlock` object -- a structured, validated, machine-readable instruction. No parsing required.
+
+### The 6 Tools
+
+| Tool | Purpose | Input Schema |
+|:-----|:--------|:-------------|
+| `respond` | Send a message to the user (progress update, clarification, partial result) | `{ message: string }` |
+| `task_complete` | Signal that the task is finished and deliver the final answer | `{ result: string }` |
+| `use_capability` | Call any WorthDoing Capability via `provider.method` syntax | `{ name: string, input: object }` |
+| `shell_execute` | Run a shell command in the workspace directory | `{ command: string }` |
+| `write_file` | Create or overwrite a file in the workspace | `{ path: string, content: string }` |
+| `read_file` | Read the contents of a file in the workspace | `{ path: string }` |
+
+### How It Works
+
+1. **Tool definition** -- At session start, the agent registers all 6 tools with Claude using Anthropic's `tools` parameter, each with a `name`, `description`, and `input_schema`.
+
+2. **Claude responds with tool_use** -- Instead of free-form text, Claude returns a message containing a `ToolUseBlock`:
+   ```
+   stop_reason: "tool_use"
+   content: [
+     TextBlock { text: "I need to search for..." }     // thought
+     ToolUseBlock { id: "toolu_01X...", name: "use_capability",
+       input: { name: "exa.search", input: { query: "...", numResults: 10 } } }
+   ]
+   ```
+
+3. **Execution** -- The agent dispatches the tool call to the appropriate executor based on the tool `name`. No string matching, no regex, no parsing.
+
+4. **tool_result** -- The execution result is sent back to Claude as a `tool_result` message, keyed by the `tool_use_id`:
+   ```
+   { role: "user", content: [
+     { type: "tool_result", tool_use_id: "toolu_01X...",
+       content: "{ success: true, output: {...}, duration_ms: 1340 }" }
+   ]}
+   ```
+
+5. **Loop** -- Claude sees the result and decides the next tool call, or calls `task_complete` to finish.
+
+### Why This Matters
+
+- **Zero parse failures.** ToolUseBlock objects are always valid -- no malformed JSON, no fence-wrapped output, no ambiguity.
+- **Type-safe dispatch.** Each tool has a schema. Invalid inputs are rejected before execution.
+- **Cleaner conversation history.** The message log contains structured tool_use and tool_result entries instead of raw JSON strings.
+- **Better model performance.** Claude is optimized for its native tool_use protocol and produces more reliable, focused actions through it.
+
+<br />
+
+---
+
+<br />
+
+## Context Management
+
+WD Agent v1.0.0 includes an automatic context compaction system inspired by the Claude Code architecture. Long-running sessions no longer degrade or hit context limits.
+
+### Auto-Compaction
+
+When the conversation context exceeds approximately **80,000 tokens**, the agent automatically:
+
+1. **Preserves** the last 6 messages (the most recent and relevant context)
+2. **Summarizes** all older messages into a compact system-level summary
+3. **Replaces** the old messages with the summary, dramatically reducing token count
+4. **Continues** the agent loop seamlessly -- Claude sees the summary plus recent context
+
+The compaction is transparent. The agent does not pause or ask for confirmation. A log entry records the compaction event, including tokens before and after.
+
+### Token Usage Tracking
+
+Every API call to Claude is tracked with full token accounting:
+
+| Metric | Description |
+|:-------|:------------|
+| **Input tokens** | Tokens sent to Claude (system prompt + conversation + tools) |
+| **Output tokens** | Tokens received from Claude (thoughts + tool calls) |
+| **Estimated cost** | Calculated from the model's per-token pricing |
+| **Session total** | Cumulative input, output, and cost across all steps |
+
+Token usage is displayed after each response and available at any time via the `/tokens` command.
+
+### Why Compaction Matters
+
+Without compaction, long sessions (10+ steps with large tool results) can exceed the model's context window or become prohibitively expensive. Auto-compaction keeps the effective context under control while preserving the essential information the agent needs to continue working.
+
+<br />
+
+---
+
+<br />
+
+## Response Rendering
+
+v1.0.0 introduces a redesigned terminal output format with distinct visual elements for each type of content.
+
+### Rendering Elements
+
+| Element | Format | Description |
+|:--------|:-------|:------------|
+| **Thoughts** | `dim italic` | Claude's internal reasoning, displayed in dim italic text |
+| **Actions** | `bold action badge` | Tool calls displayed as action badges with timing |
+| **Responses** | `left-border` | Agent messages rendered with a `\|` left border, word-wrapped with markdown support |
+| **Errors** | `red thick border` | Errors rendered with a red thick `\|` left border for high visibility |
+| **Token usage** | `dim footer` | Input/output token counts and cost displayed after each response |
+| **Session bar** | `status line` | Persistent status showing model, step count, and session tokens |
+
+### Example Output
+
+```
+  Thinking...
+
+  use_capability exa.search                                         1,340ms
+
+  | Found 15 results covering quantum computing breakthroughs
+  | in 2026. The most relevant results focus on IBM, Google,
+  | IonQ, and PsiQuantum. Let me scrape the top articles for
+  | detailed information.
+  |
+  tokens: 1,247 in / 156 out (~$0.02)
+
+  shell_execute ls -la                                                 42ms
+
+  | The workspace contains 3 files from previous steps.
+  | I'll now write the final report.
+  |
+  tokens: 2,891 in / 89 out (~$0.04)
+
+  write_file quantum-report.md                                         18ms
+
+  | Report written to quantum-report.md (5,847 bytes).
+  |
+  | Key findings:
+  | 1. IBM Eagle R2 -- 1,386 logical qubits with error correction
+  | 2. Google Willow -- Quantum supremacy in materials simulation
+  | 3. IonQ Forte Enterprise -- First commercial 64-qubit trapped ion
+  |
+  tokens: 3,102 in / 234 out (~$0.05)
+  session total: 7,240 in / 479 out (~$0.11)
+```
+
+### Error Rendering
+
+```
+  shell_execute rm -rf /                                            BLOCKED
+
+  | Command blocked by safety filter.
+  | Pattern matched: "rm -rf /"
+  | This command would recursively delete the root filesystem.
+  |
 ```
 
 <br />
@@ -109,14 +390,14 @@ When you run `wdagent` for the first time, a guided setup flow walks you through
 ### Step 1: Choose Your Provider
 
 ```
-  ╔══════════════════════════════════════════════════════╗
-  ║              WD Agent v0.1.0                        ║
-  ║   Welcome! Let's get you set up.                    ║
-  ╚══════════════════════════════════════════════════════╝
+  +======================================================+
+  |              WD Agent v1.0.0                         |
+  |   Welcome! Let's get you set up.                     |
+  +======================================================+
 
   Choose your LLM provider:
 
-    1. Anthropic   (Direct Claude API — recommended)
+    1. Anthropic   (Direct Claude API -- recommended)
     2. OpenRouter   (350+ models: Claude, GPT, Gemini, Llama, Mistral, DeepSeek...)
 
   Selection: 1
@@ -130,44 +411,54 @@ When you run `wdagent` for the first time, a guided setup flow walks you through
   Key saved to ~/.wdagent/config.json.
 ```
 
-### Step 3: (OpenRouter Only) Interactive Model Browser
+### Step 3: (OpenRouter Only) Scrollable Model Selector
 
-If you chose OpenRouter, an interactive model browser appears:
+If you chose OpenRouter, a scrollable interactive model selector appears:
 
 ```
   Fetching available models from OpenRouter...
 
-  ┌───────────────────────────────────────────────────────────────┐
-  │  #   Model                          Context    $/1M tokens   │
-  ├───────────────────────────────────────────────────────────────┤
-  │  1   anthropic/claude-opus-4-6      1M         $15 / $75     │
-  │  2   anthropic/claude-sonnet-4      200K       $3  / $15     │
-  │  3   openai/gpt-4o                  128K       $5  / $15     │
-  │  4   google/gemini-2.5-pro          1M         $1.25 / $10   │
-  │  5   meta-llama/llama-4-maverick    1M         $0.20 / $0.60 │
-  │  6   mistralai/mistral-large        128K       $2  / $6      │
-  │  7   deepseek/deepseek-r1           64K        $0.55 / $2.19 │
-  │  ...                                                          │
-  │  [↑/↓ to scroll, / to filter, Enter to select]               │
-  └───────────────────────────────────────────────────────────────┘
+  +---------------------------------------------------------------+
+  |  Available Models (350+)                    [Type to filter]   |
+  +---------------------------------------------------------------+
+  |    anthropic/claude-opus-4-6      1M ctx    $15 / $75         |
+  |  > anthropic/claude-sonnet-4      200K ctx  $3  / $15         |
+  |    openai/gpt-4o                  128K ctx  $5  / $15         |
+  |    google/gemini-2.5-pro          1M ctx    $1.25 / $10       |
+  |    meta-llama/llama-4-maverick    1M ctx    $0.20 / $0.60     |
+  |    mistralai/mistral-large        128K ctx  $2  / $6          |
+  |    deepseek/deepseek-r1           64K ctx   $0.55 / $2.19     |
+  |    qwen/qwen-2.5-72b             128K ctx  $0.30 / $0.50     |
+  |    cohere/command-r-plus          128K ctx  $2.50 / $10       |
+  |    perplexity/sonar-pro           128K ctx  $3  / $15         |
+  |    01-ai/yi-large                 32K ctx   $3  / $3          |
+  |    nvidia/llama-3.1-nemotron-70b  128K ctx  $0.20 / $0.20    |
+  |    microsoft/phi-4               16K ctx   $0.07 / $0.14     |
+  |    inflection/inflection-3.0     128K ctx  $3  / $3           |
+  |    databricks/dbrx-instruct      32K ctx   $0.60 / $0.60     |
+  |                                                     [v more]  |
+  +---------------------------------------------------------------+
+  | arrows/j/k scroll | PgUp/PgDn jump | type to filter | Enter   |
+  +---------------------------------------------------------------+
 
-  Selected: anthropic/claude-opus-4-6
+  Selected: anthropic/claude-sonnet-4
 ```
 
 ### Step 4: System Info Panel
 
 ```
-  ┌──────────────────────────────────────────────────┐
-  │  System Information                               │
-  │                                                   │
-  │  OS:        macOS 15.2 (Darwin 25.2.0)            │
-  │  Node:      v22.4.0                               │
-  │  Shell:     /bin/zsh                               │
-  │  Workspace: /Users/you/projects                    │
-  │  Provider:  Anthropic (Claude Opus 4.6)            │
-  │  Caps:      22 capabilities available              │
-  │  Config:    ~/.wdagent/config.json                 │
-  └──────────────────────────────────────────────────┘
+  +--------------------------------------------------+
+  |  System Information                               |
+  |                                                   |
+  |  OS:        macOS 15.2 (Darwin 25.2.0)            |
+  |  Node:      v22.4.0                               |
+  |  Shell:     /bin/zsh                               |
+  |  Workspace: /Users/you/projects                    |
+  |  Provider:  Anthropic (Claude Opus 4.6)            |
+  |  Engine:    Native tool_use (v1.0.0)               |
+  |  Caps:      22 capabilities available              |
+  |  Config:    ~/.wdagent/config.json                 |
+  +--------------------------------------------------+
 
   Ready. Type your message or /help for commands.
 ```
@@ -185,6 +476,7 @@ WD Agent supports two LLM providers, switchable at any time.
 ### Anthropic (Direct Claude API)
 
 - Direct access to Claude Opus 4.6 with 1M token context
+- Full native `tool_use` support with structured ToolUseBlock dispatch
 - Lowest latency, most reliable for the primary reasoning engine
 - Requires an `ANTHROPIC_API_KEY`
 
@@ -198,103 +490,57 @@ WD Agent supports two LLM providers, switchable at any time.
   - **Mistral:** Mistral Large, Medium, Small, Codestral
   - **DeepSeek:** DeepSeek R1, DeepSeek V3
   - **Qwen, Cohere, Perplexity, 01.AI, and hundreds more**
-- Interactive model browser with pricing, context length, and filtering
+- Scrollable interactive model selector with real-time filtering
 - Requires an `OPENROUTER_API_KEY`
 
-### Switching Models at Runtime
+### OpenRouter Model Selection
 
-Use the `/model` slash command inside any session to browse and switch models on the fly:
+The `/model` command launches a scrollable interactive selector:
 
 ```
 You: /model
 
   Current model: anthropic/claude-opus-4-6
 
-  ┌───────────────────────────────────────────────────────────────┐
-  │  Available Models (via OpenRouter)                            │
-  │  [Type to filter, ↑/↓ to navigate, Enter to select]         │
-  │                                                               │
-  │  > claude                                                     │
-  │                                                               │
-  │  1. anthropic/claude-opus-4-6       1M ctx    $15/$75        │
-  │  2. anthropic/claude-sonnet-4       200K ctx  $3/$15         │
-  │  3. anthropic/claude-haiku-3.5      200K ctx  $0.80/$4       │
-  └───────────────────────────────────────────────────────────────┘
+  +---------------------------------------------------------------+
+  |  Available Models (via OpenRouter)           [Type to filter]  |
+  +---------------------------------------------------------------+
+  |  > anthropic/claude-opus-4-6       1M ctx    $15/$75          |
+  |    anthropic/claude-sonnet-4       200K ctx  $3/$15           |
+  |    anthropic/claude-haiku-3.5      200K ctx  $0.80/$4         |
+  |    openai/gpt-4o                   128K ctx  $5/$15           |
+  |    google/gemini-2.5-pro           1M ctx    $1.25/$10        |
+  |    meta-llama/llama-4-maverick     1M ctx    $0.20/$0.60      |
+  |    mistralai/mistral-large         128K ctx  $2/$6            |
+  |    deepseek/deepseek-r1            64K ctx   $0.55/$2.19      |
+  |    qwen/qwen-2.5-72b              128K ctx  $0.30/$0.50      |
+  |    cohere/command-r-plus           128K ctx  $2.50/$10        |
+  |    perplexity/sonar-pro            128K ctx  $3/$15           |
+  |    nvidia/llama-3.1-nemotron-70b   128K ctx  $0.20/$0.20     |
+  |    microsoft/phi-4                16K ctx   $0.07/$0.14      |
+  |    inflection/inflection-3.0      128K ctx  $3/$3            |
+  |    databricks/dbrx-instruct       32K ctx   $0.60/$0.60      |
+  |                                                     [v more]  |
+  +---------------------------------------------------------------+
+  | up/down scroll | PgUp/PgDn jump | type to filter | Esc cancel |
+  +---------------------------------------------------------------+
+```
 
+**Navigation:**
+
+| Key | Action |
+|:----|:-------|
+| `Up` / `Down` | Scroll through models one at a time |
+| `PageUp` / `PageDown` | Jump through the list in large increments |
+| Type any text | Filter/search models in real-time |
+| `Enter` | Select the highlighted model |
+| `Escape` | Cancel and keep the current model |
+
+The viewport displays **15 models at a time** with scroll indicators (`[^ more]` / `[v more]`) showing when there are models above or below the visible area.
+
+```
   Switched to: anthropic/claude-sonnet-4
-```
-
-<br />
-
----
-
-<br />
-
-## Architecture
-
-```
-                        ┌─────────────┐
-                        │   You (CLI)  │
-                        └──────┬──────┘
-                               │
-                        ┌──────▼──────┐
-                        │  Agent Loop  │
-                        │  ┌────────┐  │
-                        │  │ Think  │──┼──► Claude Opus 4.6
-                        │  │  Act   │  │   (or any OpenRouter model)
-                        │  │Observe │  │
-                        │  │Persist │  │
-                        │  └────────┘  │
-                        └──────┬──────┘
-                               │
-                  ┌────────────┼────────────┐
-                  │            │            │
-            ┌─────▼─────┐ ┌───▼───┐ ┌─────▼─────┐
-            │   Shell    │ │ Files │ │Capabilities│
-            │  Executor  │ │Handler│ │   Bridge   │
-            └───────────┘ └───────┘ └─────┬─────┘
-                                          │
-                        ┌─────────────────▼──────────────────┐
-                        │     WorthDoing Capabilities SDK     │
-                        ├────────────────────────────────────┤
-                        │ Exa · Tavily · Firecrawl           │
-                        │ OpenRouter · OpenAlex               │
-                        │ FMP · EODHD · Documents             │
-                        └────────────────────────────────────┘
-```
-
-### Data Flow (Detailed)
-
-```
- User Input
-     │
-     ▼
- ┌──────────────────┐    ┌──────────────────────┐    ┌──────────────────┐
- │  1. Build Context │───▶│  2. Send to Claude    │───▶│  3. Parse JSON   │
- │  (system prompt + │    │  (system prompt +     │    │  {thought, action}│
- │   history +       │    │   full conversation   │    │                   │
- │   prior results)  │    │   context)            │    │                   │
- └──────────────────┘    └──────────────────────┘    └────────┬─────────┘
-                                                               │
- ┌──────────────────┐    ┌──────────────────────┐    ┌────────▼─────────┐
- │  6. Loop back to  │◀──│  5. Append result to  │◀──│  4. Execute the  │
- │  step 1, or       │    │  conversation store   │    │  action (shell / │
- │  return "done"    │    │  + steps.json         │    │  capability /    │
- │  to user          │    │                       │    │  file / agent)   │
- └──────────────────┘    └──────────────────────┘    └──────────────────┘
-```
-
-### Persistence Layer
-
-```
-.conversations/
-└── a1b2c3d4-5678-90ab-cdef-1234567890ab/
-    ├── history.json      Full message log (user + assistant + system)
-    ├── steps.json        Every think/act/observe cycle with timing
-    ├── agent.log         Structured debug log (JSON lines)
-    ├── report.md         Example: a file the agent created
-    └── data/
-        └── prices.csv    Example: another file the agent created
+  tokens: session costs will now use sonnet-4 pricing ($3/$15 per 1M)
 ```
 
 <br />
@@ -305,7 +551,7 @@ You: /model
 
 ## Available Capabilities
 
-WD Agent ships with **22+ capabilities** through the [WorthDoing Capabilities](https://github.com/Worth-Doing/worthdoing-capabilities) SDK. Each capability is invoked using `provider.method` syntax (e.g., `exa.search`, `fmp.quote`).
+WD Agent ships with **22+ capabilities** through the [WorthDoing Capabilities](https://github.com/Worth-Doing/worthdoing-capabilities) SDK. Each capability is invoked through the `use_capability` tool using `provider.method` syntax (e.g., `exa.search`, `fmp.quote`).
 
 ### Search & Discovery
 
@@ -345,17 +591,16 @@ WD Agent ships with **22+ capabilities** through the [WorthDoing Capabilities](h
 |:-----------|:--------|:------------|:-------------|
 | **documents** | `generateLatex` | Generate production-quality LaTeX documents from structured input. Useful for academic papers, reports, and formatted deliverables. | None |
 
-### Built-in Actions (No API Key Needed)
+### Built-in Tools (No API Key Needed)
 
-| Action | Description |
-|:-------|:------------|
-| `shell` | Execute any shell command in the workspace directory (with safety controls) |
-| `file.read` | Read any file in the workspace |
-| `file.write` | Create or overwrite a file in the workspace |
-| `file.edit` | Edit an existing file in the workspace |
-| `spawn_agent` | Delegate a subtask to a new sub-agent with its own context |
-| `message` | Send a progress update or clarifying question to the user |
-| `done` | Signal that the task is complete |
+| Tool | Description |
+|:-----|:------------|
+| `respond` | Send a progress update or clarifying question to the user |
+| `task_complete` | Signal that the task is complete and deliver the final result |
+| `shell_execute` | Execute any shell command in the workspace directory (with safety controls) |
+| `read_file` | Read any file in the workspace |
+| `write_file` | Create or overwrite a file in the workspace |
+| `use_capability` | Call any WorthDoing Capability via `provider.method` syntax |
 
 <br />
 
@@ -410,7 +655,10 @@ Inside interactive mode, the following slash commands are available:
 | `/new` | Start a new conversation (archives the current one) |
 | `/list` | List all saved conversations with ID, title, step count, and status |
 | `/resume <id>` | Resume a previous conversation by its ID |
-| `/model` | Browse and switch models interactively (OpenRouter provider) |
+| `/model` | Browse and switch models with the scrollable interactive selector |
+| `/tokens` | Show token usage for the current session (input, output, cost) |
+| `/compact` | Trigger context compaction manually (auto-compaction runs at ~80K tokens) |
+| `/workspace` | Show workspace path and list files in the current conversation directory |
 | `/config` | View or modify configuration (API keys, model, max steps, etc.) |
 | `/caps` | List all available capabilities and their required API keys |
 | `/steps` | Show all steps taken in the current conversation with timing |
@@ -420,31 +668,60 @@ Inside interactive mode, the following slash commands are available:
 ### Usage Example
 
 ```
+You: /tokens
+
+  Session Token Usage
+  +--------------------------------------------------+
+  |  Steps completed:  7                              |
+  |  Input tokens:     12,847                         |
+  |  Output tokens:    1,923                          |
+  |  Estimated cost:   $0.34                          |
+  |  Context size:     ~45K tokens                    |
+  |  Compactions:      0                              |
+  +--------------------------------------------------+
+
+You: /compact
+
+  Context compacted.
+  Before: ~45,230 tokens (23 messages)
+  After:  ~8,120 tokens (7 messages: 1 summary + 6 recent)
+  Saved:  ~37,110 tokens
+
+You: /workspace
+
+  Workspace: .conversations/a1b2c3d4-5678-90ab-cdef-1234567890ab/
+  Files:
+    history.json         (24.3 KB)
+    steps.json           (18.7 KB)
+    agent.log            (12.1 KB)
+    quantum-report.md    (5.8 KB)
+    data/prices.csv      (2.1 KB)
+
 You: /caps
 
-Available Capabilities:
-  exa.search              Neural web search
-  exa.findSimilar         Find similar pages
-  exa.contents            Get page contents
-  exa.answer              Direct answer via RAG
-  tavily.search           Real-time web search
-  tavily.extract          Extract from URLs
-  firecrawl.scrape        Scrape URL to markdown
-  firecrawl.search        Search + scrape
-  firecrawl.map           Map domain URLs
-  openrouter.chat         Chat completion (350+ models)
-  openrouter.models       List models
-  openalex.works          Search academic papers
-  openalex.authors        Search authors
-  openalex.institutions   Search institutions
-  fmp.quote               Real-time stock quote
-  fmp.profile             Company profile
-  fmp.financialStatements Financial statements
-  fmp.historicalPrices    Historical price data
-  eodhd.eod              End-of-day prices
-  eodhd.fundamentals     Fundamental data
-  eodhd.search           Search tickers
-  documents.generateLatex Generate LaTeX documents
+  Available Capabilities:
+    exa.search              Neural web search
+    exa.findSimilar         Find similar pages
+    exa.contents            Get page contents
+    exa.answer              Direct answer via RAG
+    tavily.search           Real-time web search
+    tavily.extract          Extract from URLs
+    firecrawl.scrape        Scrape URL to markdown
+    firecrawl.search        Search + scrape
+    firecrawl.map           Map domain URLs
+    openrouter.chat         Chat completion (350+ models)
+    openrouter.models       List models
+    openalex.works          Search academic papers
+    openalex.authors        Search authors
+    openalex.institutions   Search institutions
+    fmp.quote               Real-time stock quote
+    fmp.profile             Company profile
+    fmp.financialStatements Financial statements
+    fmp.historicalPrices    Historical price data
+    eodhd.eod              End-of-day prices
+    eodhd.fundamentals     Fundamental data
+    eodhd.search           Search tickers
+    documents.generateLatex Generate LaTeX documents
 ```
 
 <br />
@@ -453,103 +730,96 @@ Available Capabilities:
 
 <br />
 
-## Action Types
+## Action Types (Native Tools)
 
-The agent communicates its intentions through structured JSON action objects. Each action has a `type` field that determines how it is executed.
+The agent communicates through Anthropic's native `tool_use` protocol. Each action is a structured tool call with typed inputs, dispatched directly by the agent runtime.
 
-### `shell` -- Execute a Shell Command
+### `shell_execute` -- Execute a Shell Command
 
-Runs a command in the workspace directory using `child_process.exec`. Output (stdout + stderr) is captured and returned as the observation. Subject to safety filtering and optional user confirmation.
+Runs a command in the workspace directory using `child_process.exec`. Output (stdout + stderr) is captured and returned as a `tool_result`. Subject to safety filtering and optional user confirmation.
 
-```json
-{
-  "thought": "I need to check what files exist in the workspace.",
-  "action": {
-    "type": "shell",
-    "command": "ls -la"
+```
+Claude returns:
+  ToolUseBlock {
+    name: "shell_execute",
+    input: { command: "ls -la" }
   }
-}
+
+Agent sends back:
+  tool_result {
+    content: "{ success: true, output: { stdout: '...', exitCode: 0 }, duration_ms: 45 }"
+  }
 ```
 
-**Result:**
-```json
-{
-  "success": true,
-  "output": { "stdout": "total 24\ndrwxr-xr-x  5 user  staff  160 Apr 13 14:20 .\n...", "stderr": "", "exitCode": 0 },
-  "duration_ms": 45
-}
-```
-
-### `capability` -- Call a WorthDoing Capability
+### `use_capability` -- Call a WorthDoing Capability
 
 Invokes a capability from the WorthDoing Capabilities SDK. The `name` field uses `provider.method` syntax. The `input` field is passed directly to the capability method.
 
-```json
-{
-  "thought": "I need to search for recent papers on transformer architectures.",
-  "action": {
-    "type": "capability",
-    "name": "exa.search",
-    "input": {
-      "query": "transformer architecture papers 2026",
-      "numResults": 10,
-      "type": "neural"
+```
+Claude returns:
+  ToolUseBlock {
+    name: "use_capability",
+    input: {
+      name: "exa.search",
+      input: { query: "transformer architecture papers 2026", numResults: 10 }
     }
   }
-}
-```
 
-**Result:**
-```json
-{
-  "success": true,
-  "output": { "results": [{ "title": "...", "url": "...", "score": 0.95 }] },
-  "duration_ms": 1340
-}
-```
-
-### `file` -- Read, Write, or Edit a File
-
-Performs file I/O within the workspace directory. Paths are resolved relative to the workspace root. Path traversal (e.g., `../../etc/passwd`) is detected and blocked.
-
-```json
-{
-  "thought": "I have all the data I need. Let me write the report.",
-  "action": {
-    "type": "file",
-    "operation": "write",
-    "path": "report.md",
-    "content": "# AI Startups in Montreal\n\n## 1. Mila-Spinoff AI\n..."
+Agent sends back:
+  tool_result {
+    content: "{ success: true, output: { results: [...] }, duration_ms: 1340 }"
   }
-}
 ```
 
-### `message` -- Send a Message to the User
+### `write_file` -- Create or Overwrite a File
+
+Writes content to a file within the workspace directory. Paths are resolved relative to the workspace root. Path traversal (e.g., `../../etc/passwd`) is detected and blocked.
+
+```
+Claude returns:
+  ToolUseBlock {
+    name: "write_file",
+    input: {
+      path: "report.md",
+      content: "# AI Startups in Montreal\n\n## 1. Mila-Spinoff AI\n..."
+    }
+  }
+```
+
+### `read_file` -- Read a File
+
+Reads the contents of a file within the workspace directory. Output is truncated to prevent loading enormous files into context.
+
+```
+Claude returns:
+  ToolUseBlock {
+    name: "read_file",
+    input: { path: "data/prices.csv" }
+  }
+```
+
+### `respond` -- Send a Message to the User
 
 Returns a text message without performing any side effects. Used for progress updates, clarifying questions, or intermediate summaries.
 
-```json
-{
-  "thought": "I should let the user know what I found before proceeding.",
-  "action": {
-    "type": "message",
-    "text": "I found 23 results. Let me narrow them down to the top 5 based on funding and relevance."
+```
+Claude returns:
+  ToolUseBlock {
+    name: "respond",
+    input: { message: "I found 23 results. Let me narrow them down to the top 5." }
   }
-}
 ```
 
-### `done` -- Signal Task Completion
+### `task_complete` -- Signal Task Completion
 
-Signals that the agent has finished the task. The loop terminates and the final message is presented.
+Signals that the agent has finished the task. The loop terminates and the final result is presented.
 
-```json
-{
-  "thought": "The report is complete with all 5 startups covered.",
-  "action": {
-    "type": "done",
-    "text": "Report written to report.md. It covers the top 5 AI startups in Montreal with funding details, team size, and product descriptions."
+```
+Claude returns:
+  ToolUseBlock {
+    name: "task_complete",
+    input: { result: "Report written to report.md. It covers the top 5 AI startups..." }
   }
-}
 ```
 
 <br />
@@ -558,142 +828,128 @@ Signals that the agent has finished the task. The loop terminates and the final 
 
 <br />
 
-## Example Sessions
+## Example Session
 
 ### Research Task: Quantum Computing Breakthroughs
 
 ```
 $ wdagent
 
-  ╔══════════════════════════════════════════════════════╗
-  ║              WD Agent v0.1.0                        ║
-  ║   Powered by Claude Opus 4.6 (1M context)          ║
-  ║   Type /help for commands                           ║
-  ╚══════════════════════════════════════════════════════╝
+  +======================================================+
+  |              WD Agent v1.0.0                         |
+  |   Powered by Claude Opus 4.6 (1M context)           |
+  |   Engine: native tool_use | Type /help for commands  |
+  +======================================================+
 
 You: Research quantum computing breakthroughs in 2026 and write a summary report.
 
-  [Step 1]
-  [Think] I need to search for the latest quantum computing breakthroughs.
-          I'll use Exa's neural search for high-quality, recent results.
-  [Act]   capability -> exa.search
-          { "query": "quantum computing breakthroughs 2026", "numResults": 15 }
-  [Result] Found 15 results covering IBM, Google, IonQ, and PsiQuantum.
-  [Time]  1,120ms
+  Thinking...
 
-  [Step 2]
-  [Think] Let me get the full content of the top 5 most relevant articles
-          to extract detailed information.
-  [Act]   capability -> firecrawl.scrape
-          { "url": "https://example.com/ibm-quantum-2026-breakthrough" }
-  [Result] Scraped article: 3.2KB of clean markdown content.
-  [Time]  2,340ms
+  I need to search for the latest quantum computing breakthroughs.
+  I'll use Exa's neural search for high-quality, recent results.
 
-  [Step 3-6]
-  ... (scraping and analyzing 4 more breakthrough articles) ...
+  use_capability exa.search                                         1,120ms
+  { query: "quantum computing breakthroughs 2026", numResults: 15 }
 
-  [Step 7]
-  [Think] I now have comprehensive data on 5 major breakthroughs. I'll
-          write a structured report with an executive summary, individual
-          sections for each breakthrough, and a forward-looking analysis.
-  [Act]   file -> write -> quantum-breakthroughs-2026.md
-  [Result] Created quantum-breakthroughs-2026.md (5,847 bytes)
-  [Time]  18ms
+  | Found 15 results covering IBM, Google, IonQ, and PsiQuantum.
+  | Let me get the full content of the top 5 most relevant articles.
+  |
+  tokens: 1,892 in / 134 out (~$0.03)
 
-  [Step 8]
-  [Done]  Report written to quantum-breakthroughs-2026.md
+  use_capability firecrawl.scrape                                   2,340ms
+  { url: "https://example.com/ibm-quantum-2026-breakthrough" }
 
-          Key findings:
-          1. IBM Eagle R2 — 1,386 logical qubits with error correction
-          2. Google Willow — Quantum supremacy in materials simulation
-          3. IonQ Forte Enterprise — First commercial 64-qubit trapped ion
-          4. PsiQuantum — Photonic quantum chip at room temperature
-          5. Microsoft-Quantinuum — Topological qubit milestone
+  | Scraped article: 3.2KB of clean markdown content.
+  | IBM Eagle R2 achieves 1,386 logical qubits with error correction.
+  |
+  tokens: 3,247 in / 98 out (~$0.05)
 
-  Session saved: .conversations/c4d5e6f7-.../
+  ... (steps 3-6: scraping and analyzing 4 more breakthrough articles) ...
+
+  write_file quantum-breakthroughs-2026.md                             18ms
+
+  | Created quantum-breakthroughs-2026.md (5,847 bytes)
+  |
+  tokens: 8,934 in / 412 out (~$0.14)
+
+  task_complete
+
+  | Report written to quantum-breakthroughs-2026.md
+  |
+  | Key findings:
+  | 1. IBM Eagle R2 -- 1,386 logical qubits with error correction
+  | 2. Google Willow -- Quantum supremacy in materials simulation
+  | 3. IonQ Forte Enterprise -- First commercial 64-qubit trapped ion
+  | 4. PsiQuantum -- Photonic quantum chip at room temperature
+  | 5. Microsoft-Quantinuum -- Topological qubit milestone
+  |
+  tokens: 9,102 in / 267 out (~$0.15)
+  session total: 24,891 in / 1,823 out (~$0.42) | 8 steps | 0 compactions
 ```
 
 ### Finance Task: Stock Analysis
 
 ```
-You: Get me a full analysis of AAPL — current price, company profile,
+You: Get me a full analysis of AAPL -- current price, company profile,
      and last 3 quarters of financials. Write it to aapl-analysis.md.
 
-  [Step 1]
-  [Think] I'll start by getting the real-time quote for AAPL.
-  [Act]   capability -> fmp.quote
-          { "symbol": "AAPL" }
-  [Result] AAPL: $247.32 (+1.23%) | Vol: 52.3M | MCap: $3.78T
-  [Time]  680ms
+  Thinking...
 
-  [Step 2]
-  [Think] Now let me get the company profile for sector, CEO, and description.
-  [Act]   capability -> fmp.profile
-          { "symbol": "AAPL" }
-  [Result] Apple Inc. | CEO: Tim Cook | Sector: Technology | Employees: 164,000
-  [Time]  520ms
+  use_capability fmp.quote                                            680ms
 
-  [Step 3]
-  [Think] Now I need the last 3 quarters of financial statements.
-  [Act]   capability -> fmp.financialStatements
-          { "symbol": "AAPL", "type": "income", "period": "quarter", "limit": 3 }
-  [Result] Q1 2026: Rev $124.3B, NI $33.9B | Q4 2025: Rev $95.4B, NI $24.1B | ...
-  [Time]  740ms
+  | AAPL: $247.32 (+1.23%) | Vol: 52.3M | MCap: $3.78T
+  |
+  tokens: 1,456 in / 67 out (~$0.02)
 
-  [Step 4]
-  [Think] I have all the data. Let me compile a comprehensive analysis.
-  [Act]   file -> write -> aapl-analysis.md
-  [Result] Created aapl-analysis.md (3,921 bytes)
-  [Time]  12ms
+  use_capability fmp.profile                                          520ms
 
-  [Step 5]
-  [Done]  Full analysis written to aapl-analysis.md
+  | Apple Inc. | CEO: Tim Cook | Sector: Technology | Employees: 164,000
+  |
+  tokens: 2,103 in / 54 out (~$0.03)
 
-  Session saved: .conversations/d8e9f0a1-.../
+  use_capability fmp.financialStatements                              740ms
+
+  | Q1 2026: Rev $124.3B, NI $33.9B
+  | Q4 2025: Rev $95.4B, NI $24.1B
+  | Q3 2025: Rev $85.8B, NI $21.4B
+  |
+  tokens: 3,891 in / 112 out (~$0.06)
+
+  write_file aapl-analysis.md                                          12ms
+
+  | Created aapl-analysis.md (3,921 bytes)
+  |
+  tokens: 4,234 in / 287 out (~$0.07)
+
+  task_complete
+
+  | Full analysis written to aapl-analysis.md
+  |
+  tokens: 4,301 in / 45 out (~$0.07)
+  session total: 15,985 in / 565 out (~$0.25) | 5 steps | 0 compactions
 ```
 
-### Academic Task: Research Paper Discovery
+### Long Session with Context Compaction
 
 ```
-You: Find the 3 most cited papers about transformer architectures
-     published in 2024-2025, and summarize each one.
+You: Analyze the entire S&P 500 -- get sector breakdown, top gainers,
+     and write individual reports for each sector.
 
-  [Step 1]
-  [Think] I'll use OpenAlex to search for transformer architecture papers
-          sorted by citation count to find the most influential work.
-  [Act]   capability -> openalex.works
-          { "query": "transformer architecture", "filter": "from_publication_date:2024-01-01",
-            "sort": "cited_by_count:desc", "per_page": 3 }
-  [Result] Found 3 papers:
-           1. "Efficient Transformers: A Survey" (cited: 1,247)
-           2. "FlashAttention-3: Fast Exact Attention" (cited: 893)
-           3. "Mixture of Experts Meets Transformers" (cited: 671)
-  [Time]  1,540ms
+  ... (steps 1-18: fetching data for 11 sectors) ...
 
-  [Step 2-4]
-  ... (fetching full abstracts and details via Exa and Firecrawl) ...
+  tokens: 78,234 in / 4,567 out (~$1.24)
 
-  [Step 5]
-  [Think] I have detailed information on all 3 papers. Let me write
-          comprehensive summaries covering the key contributions.
-  [Act]   file -> write -> transformer-papers-review.md
-  [Result] Created transformer-papers-review.md (4,580 bytes)
-  [Time]  14ms
+  [auto-compact] Context exceeded ~80K tokens.
+  Compacted: 42 messages -> 7 messages (1 summary + 6 recent)
+  Before: ~82,340 tokens | After: ~12,890 tokens | Saved: ~69,450 tokens
 
-  [Step 6]
-  [Done]  Review written to transformer-papers-review.md
+  ... (steps 19-25: writing sector reports) ...
 
-          Summary:
-          1. Efficient Transformers (1,247 cites) — Comprehensive taxonomy
-             of efficient attention mechanisms, linear transformers, and
-             sparse attention patterns.
-          2. FlashAttention-3 (893 cites) — Hardware-aware exact attention
-             algorithm achieving 2x speedup over FlashAttention-2 on H100.
-          3. MoE Transformers (671 cites) — Scaling to 1T+ parameters with
-             sparse mixture-of-experts routing, achieving GPT-4 quality at
-             1/3 the compute cost.
+  task_complete
 
-  Session saved: .conversations/e2f3a4b5-.../
+  | All 11 sector reports written to the workspace.
+  |
+  session total: 94,230 in / 8,901 out (~$1.82) | 25 steps | 1 compaction
 ```
 
 <br />
@@ -710,18 +966,18 @@ Every conversation creates a self-contained workspace folder. By default, worksp
 
 ```
 .conversations/
-└── a1b2c3d4-5678-90ab-cdef-1234567890ab/
-    ├── history.json      Full message log (user + assistant + system)
-    ├── steps.json        Every think/act/observe cycle with timing data
-    ├── agent.log         Structured debug log (JSON lines format)
-    ├── report.md         Example: a file the agent created
-    └── data/
-        └── prices.csv    Example: another file the agent created
++-- a1b2c3d4-5678-90ab-cdef-1234567890ab/
+    +-- history.json      Full message log (user + assistant + tool_use + tool_result)
+    +-- steps.json        Every think/act/observe cycle with timing data
+    +-- agent.log         Structured debug log (JSON lines format)
+    +-- report.md         Example: a file the agent created
+    +-- data/
+        +-- prices.csv    Example: another file the agent created
 ```
 
 ### history.json
 
-The complete conversation log. Each entry is an `AgentMessage`:
+The complete conversation log. In v1.0.0, entries include structured `tool_use` and `tool_result` messages instead of raw JSON strings:
 
 ```json
 [
@@ -732,8 +988,20 @@ The complete conversation log. Each entry is an `AgentMessage`:
   },
   {
     "role": "assistant",
-    "content": "{\"thought\": \"I need to search for AI startups...\", \"action\": {\"type\": \"capability\", \"name\": \"exa.search\", ...}}",
+    "content": [
+      { "type": "text", "text": "I need to search for AI startups in Montreal..." },
+      { "type": "tool_use", "id": "toolu_01X...", "name": "use_capability",
+        "input": { "name": "exa.search", "input": { "query": "top AI startups Montreal 2026" } } }
+    ],
     "timestamp": "2026-04-13T14:20:02.000Z"
+  },
+  {
+    "role": "user",
+    "content": [
+      { "type": "tool_result", "tool_use_id": "toolu_01X...",
+        "content": "{ \"success\": true, \"output\": { \"results\": [...] }, \"duration_ms\": 1240 }" }
+    ],
+    "timestamp": "2026-04-13T14:20:03.240Z"
   }
 ]
 ```
@@ -747,17 +1015,15 @@ A structured execution trace. Each entry is a `StepRecord`:
   {
     "step": 1,
     "timestamp": "2026-04-13T14:20:02.000Z",
-    "thought": "I need to search for AI startups in Montreal. I'll use Exa's neural search for relevant results.",
-    "action": {
-      "type": "capability",
-      "name": "exa.search",
-      "input": { "query": "top AI startups Montreal 2026", "numResults": 15 }
-    },
+    "thought": "I need to search for AI startups in Montreal. I'll use Exa's neural search.",
+    "tool": "use_capability",
+    "input": { "name": "exa.search", "input": { "query": "top AI startups Montreal 2026", "numResults": 15 } },
     "result": {
       "success": true,
       "output": { "results": ["..."] },
       "duration_ms": 1240
-    }
+    },
+    "tokens": { "input": 1892, "output": 134, "cost": 0.031 }
   }
 ]
 ```
@@ -773,7 +1039,9 @@ Each conversation tracks metadata as a `ConversationMeta` object:
   "updated": "2026-04-13T14:25:30.000Z",
   "title": "Research AI startups in Montreal",
   "steps": 5,
-  "status": "completed"
+  "status": "completed",
+  "tokens": { "input": 24891, "output": 1823, "cost": 0.42 },
+  "compactions": 0
 }
 ```
 
@@ -805,7 +1073,9 @@ WD Agent stores its configuration in `~/.wdagent/config.json`. This file is crea
   },
   "maxSteps": 50,
   "confirmShell": true,
-  "conversationsDir": ".conversations"
+  "conversationsDir": ".conversations",
+  "autoCompact": true,
+  "compactThreshold": 80000
 }
 ```
 
@@ -827,6 +1097,8 @@ WD Agent stores its configuration in `~/.wdagent/config.json`. This file is crea
 | `maxSteps` | `number` | `50` | Maximum think-act-observe cycles per conversation before auto-stop. |
 | `confirmShell` | `boolean` | `true` | Require user confirmation before executing shell commands. |
 | `conversationsDir` | `string` | `".conversations"` | Directory for conversation workspaces (relative to CWD). |
+| `autoCompact` | `boolean` | `true` | Enable automatic context compaction when context exceeds the threshold. |
+| `compactThreshold` | `number` | `80000` | Token count threshold that triggers auto-compaction (~80K tokens). |
 
 ### Modifying Configuration
 
@@ -836,17 +1108,22 @@ Edit `~/.wdagent/config.json` directly, or use the `/config` slash command:
 You: /config set maxSteps 100
 Config updated: maxSteps = 100
 
+You: /config set autoCompact false
+Config updated: autoCompact = false
+
 You: /config set apiKeys.exa your-exa-key-here
 Config updated: apiKeys.exa = your-exa-key-here
 
 You: /config show
 Current configuration:
-  provider:         anthropic
-  model:            claude-opus-4-6-20250219
-  maxSteps:         100
-  confirmShell:     true
-  conversationsDir: .conversations
-  apiKeys:          exa, tavily (2 configured)
+  provider:          anthropic
+  model:             claude-opus-4-6-20250219
+  maxSteps:          100
+  confirmShell:      true
+  conversationsDir:  .conversations
+  autoCompact:       true
+  compactThreshold:  80000
+  apiKeys:           exa, tavily (2 configured)
 ```
 
 <br />
@@ -887,9 +1164,12 @@ The following patterns are blocked and will **never** be executed, regardless of
 When `confirmShell` is `true` (default), the agent asks for explicit user confirmation before executing any shell command:
 
 ```
-[Act] shell -> npm install express
+  shell_execute npm install express
   Allow this command? [y/N]: y
-[Result] added 64 packages in 2.1s
+
+  | added 64 packages in 2.1s
+  |
+  tokens: 2,340 in / 45 out (~$0.04)
 ```
 
 ### Output Limits
@@ -914,60 +1194,52 @@ The `maxSteps` configuration (default: 50) prevents infinite loops. If the agent
 
 ## How It Works Under The Hood
 
-The following is a detailed walkthrough of exactly what happens during every agent cycle.
+The following is a detailed walkthrough of exactly what happens during every agent cycle in the native `tool_use` architecture.
 
 ### Step 1: User Message --> Context Builder
 
 Your message (or the initial task from `wdagent run`) is added to the conversation history. The context builder assembles the full payload:
 
-- **System prompt** -- Instructs Claude on its role, available actions, capabilities, safety rules, and output format
-- **Conversation history** -- Every prior user message, assistant response, and observation
-- **Previous results** -- The outputs of all prior actions, serialized as structured JSON
+- **System prompt** -- Instructs Claude on its role, available capabilities, safety rules, and workspace context
+- **Tools definition** -- The 6 tools (`respond`, `task_complete`, `use_capability`, `shell_execute`, `write_file`, `read_file`) with their JSON Schemas
+- **Conversation history** -- Every prior user message, assistant response, `tool_use` block, and `tool_result`
+- **Token budget check** -- If context exceeds the compaction threshold, auto-compaction runs before the API call
 
-### Step 2: Context --> Claude
+### Step 2: Context --> Claude (tool_use API)
 
-The assembled context is sent to Claude Opus 4.6 (or your chosen OpenRouter model). The system prompt demands a JSON response with exactly two fields: `thought` and `action`.
+The assembled context is sent to Claude Opus 4.6 (or your chosen OpenRouter model) using the Anthropic Messages API with the `tools` parameter. Claude is free to return text (thoughts) and/or a `ToolUseBlock` (action).
 
-### Step 3: Claude --> Structured JSON
+### Step 3: Claude --> ToolUseBlock
 
-Claude returns a JSON object:
+Claude returns a message with `stop_reason: "tool_use"` containing one or more content blocks:
 
-```json
-{
-  "thought": "I need to search for recent quantum computing papers...",
-  "action": {
-    "type": "capability",
-    "name": "openalex.works",
-    "input": { "query": "quantum computing 2026", "sort": "cited_by_count:desc" }
-  }
-}
-```
+- **TextBlock** -- Claude's reasoning/thought (displayed as dim italic text in the terminal)
+- **ToolUseBlock** -- The structured tool call with `id`, `name`, and `input`
 
-The response is parsed and validated. If parsing fails, the agent retries with an error message appended to context.
+No parsing is required. The SDK provides typed objects directly.
 
-### Step 4: Action --> Executor
+### Step 4: ToolUseBlock --> Executor
 
-The `ActionExecutor` dispatches the action based on its `type`:
+The `ActionExecutor` dispatches the tool call based on its `name`:
 
-- **shell** -- Passed to `ShellExecutor` which validates against the blocked command list, optionally confirms with the user, then runs via `child_process.exec` with timeout and output limits.
-- **capability** -- Passed to `CapabilitiesBridge` which resolves `provider.method`, validates the input, calls the WorthDoing Capabilities SDK, and returns the structured result.
-- **file** -- Passed to `FileHandler` which validates the path (no traversal), then performs the read/write/edit operation within the workspace.
-- **spawn_agent** -- Creates a new sub-agent instance with its own conversation context, runs it to completion, and returns the result.
-- **message** -- Displayed to the user immediately, no side effects.
-- **done** -- Terminates the loop.
+- **shell_execute** -- Passed to `ShellExecutor` which validates against the blocked command list, optionally confirms with the user, then runs via `child_process.exec` with timeout and output limits.
+- **use_capability** -- Passed to `CapabilitiesBridge` which resolves `provider.method`, validates the input, calls the WorthDoing Capabilities SDK, and returns the structured result.
+- **write_file** / **read_file** -- Passed to `FileHandler` which validates the path (no traversal), then performs the operation within the workspace.
+- **respond** -- Displayed to the user with left-border rendering, no side effects.
+- **task_complete** -- Terminates the loop and displays the final result.
 
-### Step 5: Result --> Conversation Store
+### Step 5: Result --> tool_result Message
 
-The action result (success/failure, output data, duration) is:
+The execution result (success/failure, output data, duration) is:
 
-1. Serialized as a structured `StepRecord`
+1. Serialized as a structured `StepRecord` with token counts
 2. Appended to `steps.json` on disk
-3. Added to the conversation history as an observation message
-4. Added to the in-memory context for the next iteration
+3. Sent back to Claude as a `tool_result` message keyed by the `tool_use_id`
+4. Token usage is tracked and displayed in the terminal
 
 ### Step 6: Loop or Return
 
-If the action type was `done`, the loop terminates and the final message is displayed. Otherwise, control returns to **Step 1** with the enriched conversation context, and Claude reasons about the next action.
+If the tool was `task_complete`, the loop terminates and the final message is displayed. Otherwise, control returns to **Step 1** with the enriched conversation context, and Claude reasons about the next tool call.
 
 <br />
 
@@ -977,20 +1249,23 @@ If the action type was `done`, the loop terminates and the final message is disp
 
 ## Comparison
 
-How WD Agent compares to other tools in the ecosystem:
+How WD Agent v1.0.0 compares to other tools in the ecosystem:
 
-| Feature | WD Agent | ChatGPT | Claude Code | Cursor |
+| Feature | WD Agent v1.0.0 | ChatGPT | Claude Code | Cursor |
 |:--------|:--------:|:-------:|:-----------:|:------:|
+| Native tool_use protocol | Yes | N/A | Yes | No |
+| Context auto-compaction | Yes | No | Yes | No |
+| Token usage tracking | Yes | No | Yes | No |
 | Local-first execution | Yes | No | Yes | No |
 | Capability-based architecture | Yes | No | No | No |
 | 350+ model support | Yes | No | No | No |
+| Scrollable model selector | Yes | No | No | Yes |
 | Academic research (OpenAlex) | Yes | No | No | No |
 | Financial data (FMP, EODHD) | Yes | No | No | No |
 | Web scraping (Firecrawl) | Yes | No | No | No |
 | Persistent conversations | Yes | Yes | No | No |
-| Sub-agent delegation | Yes | No | No | No |
+| Left-border response rendering | Yes | No | Yes | No |
 | Open source | Yes | No | Yes | No |
-| Interactive model browser | Yes | No | No | Yes |
 | File-based audit trail | Yes | No | No | No |
 | Zero cloud dependency | Yes | No | Yes | No |
 | Shell execution with safety | Yes | No | Yes | No |
@@ -1069,28 +1344,33 @@ npm run typecheck
 
 ```
 wd-agent/
-├── src/
-│   ├── index.ts                 Public API exports
-│   ├── agent/
-│   │   ├── types.ts             Core type definitions
-│   │   └── loop.ts              The main agent loop
-│   ├── cli/
-│   │   └── app.ts               CLI entry point and interactive REPL
-│   ├── config/
-│   │   └── settings.ts          Configuration loading and saving
-│   ├── runtime/
-│   │   ├── executor.ts          Action dispatcher
-│   │   ├── shell.ts             Shell command runner with safety checks
-│   │   ├── capabilities.ts      WorthDoing Capabilities bridge
-│   │   └── files.ts             File I/O handler with path security
-│   └── utils/
-│       ├── colors.ts            Terminal color helpers
-│       └── logger.ts            Structured JSON logger
-├── package.json
-├── tsconfig.json
-├── tsup.config.ts
-├── vitest.config.ts
-└── LICENSE
++-- src/
+|   +-- index.ts                 Public API exports
+|   +-- agent/
+|   |   +-- types.ts             Core type definitions
+|   |   +-- loop.ts              The main agent loop (native tool_use)
+|   |   +-- tools.ts             Tool definitions (6 tools with JSON Schemas)
+|   |   +-- compact.ts           Context compaction engine
+|   |   +-- tokens.ts            Token tracking and cost estimation
+|   +-- cli/
+|   |   +-- app.ts               CLI entry point and interactive REPL
+|   |   +-- render.ts            Response rendering (left-border, badges, dim)
+|   |   +-- selector.ts          Scrollable model selector (15-item viewport)
+|   +-- config/
+|   |   +-- settings.ts          Configuration loading and saving
+|   +-- runtime/
+|   |   +-- executor.ts          Tool call dispatcher
+|   |   +-- shell.ts             Shell command runner with safety checks
+|   |   +-- capabilities.ts      WorthDoing Capabilities bridge
+|   |   +-- files.ts             File I/O handler with path security
+|   +-- utils/
+|       +-- colors.ts            Terminal color helpers
+|       +-- logger.ts            Structured JSON logger
++-- package.json
++-- tsconfig.json
++-- tsup.config.ts
++-- vitest.config.ts
++-- LICENSE
 ```
 
 ### Guidelines
@@ -1099,7 +1379,8 @@ wd-agent/
 2. **Minimal dependencies** -- No external runtime dependencies beyond `@anthropic-ai/sdk` and `worthdoing-capabilities`. Keep the dependency tree clean.
 3. **Test your changes** -- Run `npm test` before submitting a PR.
 4. **Sequential by design** -- Do not introduce parallelism into the agent loop. The sequential nature is a deliberate architectural choice.
-5. **Safety first** -- Any new action type must include appropriate safety checks and output limits.
+5. **Native tool_use only** -- All new agent actions must be implemented as tools with proper JSON Schemas. Do not add JSON-prompt-based actions.
+6. **Safety first** -- Any new tool must include appropriate safety checks and output limits.
 
 ### Submitting a Pull Request
 
