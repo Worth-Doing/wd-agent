@@ -12,6 +12,7 @@ const c = {
   reset: "\x1b[0m",
   bold: "\x1b[1m",
   dim: "\x1b[2m",
+  italic: "\x1b[3m",
   underline: "\x1b[4m",
   cyan: "\x1b[36m",
   green: "\x1b[32m",
@@ -21,7 +22,53 @@ const c = {
   red: "\x1b[31m",
   white: "\x1b[37m",
   gray: "\x1b[90m",
+  bgRed: "\x1b[41m",
+  bgGreen: "\x1b[42m",
+  bgYellow: "\x1b[43m",
+  bgBlue: "\x1b[44m",
+  bgMagenta: "\x1b[45m",
+  bgCyan: "\x1b[46m",
 };
+
+// ---------------------------------------------------------------------------
+// Box-drawing helper — premium bordered panels
+// ---------------------------------------------------------------------------
+function stripAnsi(str: string): string {
+  return str.replace(/\x1b\[[0-9;]*m/g, "");
+}
+
+function box(title: string, lines: string[], color: string = c.dim): string {
+  const width = 52;
+  const titleClean = stripAnsi(title);
+  const dashCount = Math.max(0, width - titleClean.length - 4);
+  const top = `  ${color}\u250c\u2500 ${c.reset}${c.bold}${title}${c.reset}${color} ${"\u2500".repeat(dashCount)}\u2510${c.reset}`;
+  const bottom = `  ${color}\u2514${"\u2500".repeat(width)}\u2518${c.reset}`;
+  const body = lines.map((l) => {
+    const clean = stripAnsi(l);
+    const padding = Math.max(0, width - 1 - clean.length);
+    return `  ${color}\u2502${c.reset} ${l}${" ".repeat(padding)}${color}\u2502${c.reset}`;
+  });
+  return [top, ...body, bottom].join("\n");
+}
+
+function emptyBoxLine(): string {
+  return "";
+}
+
+// ---------------------------------------------------------------------------
+// Session tracking
+// ---------------------------------------------------------------------------
+let sessionStepCount = 0;
+let sessionStartTime = Date.now();
+
+function generateSessionId(): string {
+  const now = new Date();
+  const date = now.toISOString().slice(0, 10).replace(/-/g, "");
+  const rand = Math.random().toString(36).slice(2, 8);
+  return `conv_${date}_${rand}`;
+}
+
+let currentSessionId = generateSessionId();
 
 // ---------------------------------------------------------------------------
 // Screen helpers
@@ -31,34 +78,69 @@ function clearScreen(): void {
 }
 
 function printBanner(): void {
-  console.log(`
-${c.cyan}${c.bold}  \u2566 \u2566\u2554\u2566\u2557  \u2554\u2550\u2557\u250c\u2500\u2510\u250c\u2500\u2510\u250c\u2510\u250c\u252c\u2500\u2510
-  \u2551\u2551\u2551 \u2551\u2551  \u2560\u2550\u2563\u2502 \u2534\u251c\u2524 \u2502\u2502\u2502 \u2502
-  \u255a\u2569\u255d\u2550\u2569\u255d  \u2569 \u2569\u2514\u2500\u2518\u2514\u2500\u2518\u2518\u2514\u2518 \u2534 ${c.reset}
-  ${c.dim}\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501${c.reset}
-  ${c.bold}Local AI Agent by WorthDoing AI${c.reset}
-  ${c.dim}Powered by Claude Opus 4.6${c.reset}
-  ${c.dim}\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501${c.reset}
-`);
+  const banner = box("", [
+    "",
+    `  ${c.cyan}${c.bold}\u2588\u2588\u2557    \u2588\u2588\u2557\u2588\u2588\u2588\u2588\u2588\u2588\u2557      \u2588\u2588\u2588\u2588\u2588\u2557  \u2588\u2588\u2588\u2588\u2588\u2588\u2557${c.reset}`,
+    `  ${c.cyan}${c.bold}\u2588\u2588\u2551    \u2588\u2588\u2551\u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557    \u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557\u2588\u2588\u2554\u2550\u2550\u2550\u2550\u255d${c.reset}`,
+    `  ${c.cyan}${c.bold}\u2588\u2588\u2551 \u2588\u2557 \u2588\u2588\u2551\u2588\u2588\u2551  \u2588\u2588\u2551    \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2551\u2588\u2588\u2551  \u2588\u2588\u2588\u2557${c.reset}`,
+    `  ${c.cyan}${c.bold}\u2588\u2588\u2551\u2588\u2588\u2588\u2557\u2588\u2588\u2551\u2588\u2588\u2551  \u2588\u2588\u2551    \u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2551\u2588\u2588\u2551   \u2588\u2588\u2551${c.reset}`,
+    `  ${c.cyan}${c.bold}\u255a\u2588\u2588\u2588\u2554\u2588\u2588\u2588\u2554\u255d\u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255d    \u2588\u2588\u2551  \u2588\u2588\u2551\u255a\u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255d${c.reset}`,
+    `  ${c.cyan}${c.bold} \u255a\u2550\u2550\u255d\u255a\u2550\u2550\u255d \u255a\u2550\u2550\u2550\u2550\u2550\u255d     \u255a\u2550\u255d  \u255a\u2550\u255d \u255a\u2550\u2550\u2550\u2550\u2550\u255d${c.reset}`,
+    "",
+    `  ${c.bold}Local AI Agent by WorthDoing AI${c.reset}`,
+    `  ${c.dim}\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500${c.reset}`,
+    `  ${c.dim}Powered by Claude \u00b7 22+ Capabilities${c.reset}`,
+    "",
+  ], c.cyan);
+  console.log(`\n${banner}\n`);
+}
+
+function printStatusBar(config: AgentConfig, convId: string): void {
+  const providerLabel = config.provider === "openrouter" ? "OpenRouter" : "Anthropic";
+  const modelShort = config.model.length > 20 ? config.model.slice(0, 20) + "\u2026" : config.model;
+  const statusBox = box(`${c.cyan}Status${c.reset}`, [
+    `${c.dim}Provider:${c.reset} ${c.bold}${providerLabel}${c.reset}   ${c.dim}Model:${c.reset} ${c.bold}${modelShort}${c.reset}`,
+    `${c.dim}Session:${c.reset}  ${c.gray}${convId}${c.reset}   ${c.dim}Steps:${c.reset} ${sessionStepCount}`,
+  ], c.cyan);
+  console.log(`${statusBox}\n`);
+}
+
+function printSystemInfo(config: AgentConfig, convId: string, capsCount: number): void {
+  const providerLabel = config.provider === "openrouter" ? "OpenRouter" : "Anthropic";
+  const nodeVer = process.version;
+  const sysBox = box(`${c.green}System${c.reset}`, [
+    `${c.dim}Node${c.reset}      ${c.bold}${nodeVer}${c.reset}`,
+    `${c.dim}Provider${c.reset}  ${c.bold}${providerLabel}${c.reset}`,
+    `${c.dim}Model${c.reset}     ${c.bold}${config.model}${c.reset}`,
+    `${c.dim}Caps${c.reset}      ${c.green}${capsCount} capabilities loaded${c.reset}`,
+    `${c.dim}Session${c.reset}   ${c.gray}${convId}${c.reset}`,
+  ], c.green);
+  console.log(`${sysBox}`);
+  console.log(`\n  ${c.dim}Type a message to start, or ${c.reset}${c.cyan}/help${c.reset}${c.dim} for commands.${c.reset}\n`);
 }
 
 function printHelp(): void {
-  console.log(`
-  ${c.bold}Commands:${c.reset}
-
-    ${c.cyan}/help${c.reset}          Show this help
-    ${c.cyan}/new${c.reset}           Start a new conversation
-    ${c.cyan}/list${c.reset}          List conversations
-    ${c.cyan}/resume <id>${c.reset}   Resume a conversation
-    ${c.cyan}/config${c.reset}        Show/edit configuration
-    ${c.cyan}/model${c.reset}         Change model (with OpenRouter model browser)
-    ${c.cyan}/caps${c.reset}          List available capabilities
-    ${c.cyan}/steps${c.reset}         Show steps in current conversation
-    ${c.cyan}/clear${c.reset}         Clear screen
-    ${c.cyan}/exit${c.reset}          Exit the agent
-
-  ${c.bold}Or just type a message to chat with the agent.${c.reset}
-`);
+  const commands = [
+    [`${c.cyan}/help${c.reset}`, "Show this help"],
+    [`${c.cyan}/new${c.reset}`, "Start a new conversation"],
+    [`${c.cyan}/list${c.reset}`, "List conversations"],
+    [`${c.cyan}/resume <id>${c.reset}`, "Resume a conversation"],
+    [`${c.cyan}/config${c.reset}`, "Show/edit configuration"],
+    [`${c.cyan}/model${c.reset}`, "Change model (OpenRouter browser)"],
+    [`${c.cyan}/caps${c.reset}`, "List available capabilities"],
+    [`${c.cyan}/steps${c.reset}`, "Show steps in current conversation"],
+    [`${c.cyan}/clear${c.reset}`, "Clear screen"],
+    [`${c.cyan}/exit${c.reset}`, "Exit the agent"],
+  ];
+  const lines = commands.map(([cmd, desc]) => {
+    const cleanCmd = stripAnsi(cmd);
+    const pad = Math.max(0, 16 - cleanCmd.length);
+    return `${cmd}${" ".repeat(pad)}${c.dim}${desc}${c.reset}`;
+  });
+  lines.push("");
+  lines.push(`${c.dim}Or just type a message to chat with the agent.${c.reset}`);
+  const helpBox = box(`${c.yellow}Help${c.reset}`, ["", ...lines, ""], c.yellow);
+  console.log(`\n${helpBox}\n`);
 }
 
 // ---------------------------------------------------------------------------
@@ -71,17 +153,22 @@ function ask(rl: readline.Interface, question: string): Promise<string> {
 }
 
 async function setupProvider(rl: readline.Interface): Promise<{ provider: "anthropic" | "openrouter"; apiKey: string; model: string }> {
-  console.log(`\n  ${c.yellow}${c.bold}Setup Required${c.reset}`);
-  console.log(`  ${c.dim}Choose your AI provider to get started.${c.reset}\n`);
-  console.log(`  ${c.cyan}1${c.reset}  Anthropic (Claude API direct)`);
-  console.log(`  ${c.cyan}2${c.reset}  OpenRouter (350+ models — Claude, GPT, Gemini, Llama, etc.)\n`);
+  const setupLines = [
+    "",
+    `${c.bold}Choose your AI provider to get started.${c.reset}`,
+    "",
+    `${c.cyan}1${c.reset}  Anthropic (Claude API direct)`,
+    `${c.cyan}2${c.reset}  OpenRouter (350+ models)`,
+    "",
+  ];
+  console.log(`\n${box(`${c.yellow}Setup Required${c.reset}`, setupLines, c.yellow)}\n`);
 
-  const choice = await ask(rl, `  ${c.cyan}Choice [1/2]: ${c.reset}`);
+  const choice = await ask(rl, `  ${c.cyan}\u276f${c.reset} ${c.bold}Choice [1/2]:${c.reset} `);
 
   if (choice === "2") {
     // OpenRouter flow
     console.log(`\n  ${c.dim}Get an API key at: https://openrouter.ai/settings/keys${c.reset}\n`);
-    const apiKey = await ask(rl, `  ${c.cyan}OpenRouter API Key: ${c.reset}`);
+    const apiKey = await ask(rl, `  ${c.cyan}\u276f${c.reset} ${c.bold}OpenRouter API Key:${c.reset} `);
     if (!apiKey) throw new Error("No API key provided");
 
     // Fetch models from OpenRouter
@@ -93,7 +180,7 @@ async function setupProvider(rl: readline.Interface): Promise<{ provider: "anthr
 
   // Anthropic flow
   console.log(`\n  ${c.dim}Get an API key at: https://console.anthropic.com/settings/keys${c.reset}\n`);
-  const apiKey = await ask(rl, `  ${c.cyan}Anthropic API Key: ${c.reset}`);
+  const apiKey = await ask(rl, `  ${c.cyan}\u276f${c.reset} ${c.bold}Anthropic API Key:${c.reset} `);
   if (!apiKey) throw new Error("No API key provided");
 
   return { provider: "anthropic", apiKey, model: "claude-opus-4-6" };
@@ -142,25 +229,27 @@ async function selectOpenRouterModel(rl: readline.Interface, apiKey: string): Pr
 
     const availablePopular = popular.filter((id) => models.some((m) => m.id === id));
 
-    console.log(`\n  ${c.bold}${models.length} models available${c.reset}\n`);
-    console.log(`  ${c.bold}Popular models:${c.reset}\n`);
-
+    const modelLines: string[] = [""];
+    modelLines.push(`${c.bold}${models.length} models available${c.reset}`);
+    modelLines.push("");
     availablePopular.forEach((id, i) => {
       const m = models.find((m) => m.id === id);
       if (m) {
-        console.log(`  ${c.cyan}${String(i + 1).padStart(2)}${c.reset}  ${c.bold}${m.id}${c.reset}  ${c.dim}(${(m.context / 1000).toFixed(0)}K ctx)${c.reset}`);
+        modelLines.push(`${c.cyan}${String(i + 1).padStart(2)}${c.reset}  ${c.bold}${m.id}${c.reset}`);
       }
     });
+    modelLines.push("");
 
-    console.log(`\n  ${c.dim}Or type a model ID directly (e.g. anthropic/claude-opus-4-6)${c.reset}\n`);
+    console.log(`\n${box(`${c.magenta}Models${c.reset}`, modelLines, c.magenta)}\n`);
+    console.log(`  ${c.dim}Or type a model ID directly (e.g. anthropic/claude-opus-4-6)${c.reset}\n`);
 
-    const selection = await ask(rl, `  ${c.cyan}Model [number or ID]: ${c.reset}`);
+    const selection = await ask(rl, `  ${c.cyan}\u276f${c.reset} ${c.bold}Model [number or ID]:${c.reset} `);
 
     // Parse selection
     const num = parseInt(selection, 10);
     if (!isNaN(num) && num >= 1 && num <= availablePopular.length) {
       const selected = availablePopular[num - 1];
-      console.log(`  ${c.green}✓${c.reset} Selected: ${c.bold}${selected}${c.reset}`);
+      console.log(`  ${c.green}\u2713${c.reset} Selected: ${c.bold}${selected}${c.reset}`);
       return selected;
     }
 
@@ -168,11 +257,11 @@ async function selectOpenRouterModel(rl: readline.Interface, apiKey: string): Pr
     if (selection.includes("/")) {
       const exists = models.some((m) => m.id === selection);
       if (exists) {
-        console.log(`  ${c.green}✓${c.reset} Selected: ${c.bold}${selection}${c.reset}`);
+        console.log(`  ${c.green}\u2713${c.reset} Selected: ${c.bold}${selection}${c.reset}`);
         return selection;
       }
       // Even if not found in list, trust the user
-      console.log(`  ${c.yellow}⚠${c.reset} Model not found in catalog, using anyway: ${c.bold}${selection}${c.reset}`);
+      console.log(`  ${c.yellow}\u26a0${c.reset} Model not found in catalog, using anyway: ${c.bold}${selection}${c.reset}`);
       return selection;
     }
 
@@ -183,16 +272,16 @@ async function selectOpenRouterModel(rl: readline.Interface, apiKey: string): Pr
     ).slice(0, 10);
 
     if (matches.length > 0) {
-      console.log(`\n  ${c.bold}Matching models:${c.reset}\n`);
-      matches.forEach((m, i) => {
-        console.log(`  ${c.cyan}${String(i + 1).padStart(2)}${c.reset}  ${c.bold}${m.id}${c.reset}  ${c.dim}${m.name}${c.reset}`);
-      });
+      const matchLines = matches.map((m, i) =>
+        `${c.cyan}${String(i + 1).padStart(2)}${c.reset}  ${c.bold}${m.id}${c.reset}`
+      );
+      console.log(`\n${box(`${c.magenta}Matches${c.reset}`, ["", ...matchLines, ""], c.magenta)}\n`);
 
-      const pick = await ask(rl, `\n  ${c.cyan}Pick [1-${matches.length}]: ${c.reset}`);
+      const pick = await ask(rl, `  ${c.cyan}\u276f${c.reset} ${c.bold}Pick [1-${matches.length}]:${c.reset} `);
       const pickNum = parseInt(pick, 10);
       if (!isNaN(pickNum) && pickNum >= 1 && pickNum <= matches.length) {
         const selected = matches[pickNum - 1].id;
-        console.log(`  ${c.green}✓${c.reset} Selected: ${c.bold}${selected}${c.reset}`);
+        console.log(`  ${c.green}\u2713${c.reset} Selected: ${c.bold}${selected}${c.reset}`);
         return selected;
       }
     }
@@ -207,19 +296,24 @@ async function selectOpenRouterModel(rl: readline.Interface, apiKey: string): Pr
 }
 
 // ---------------------------------------------------------------------------
-// Spinner
+// Spinner — smooth dot animation
 // ---------------------------------------------------------------------------
 interface Spinner {
   stop: (result?: string) => void;
 }
 
 function showSpinner(message: string): Spinner {
-  const frames = ["\u280b", "\u2819", "\u2839", "\u2838", "\u283c", "\u2834", "\u2826", "\u2827", "\u2807", "\u280f"];
+  const frames = [
+    `${c.cyan}\u25cf${c.reset} ${c.dim}\u25cb \u25cb${c.reset}`,
+    `${c.dim}\u25cb${c.reset} ${c.cyan}\u25cf${c.reset} ${c.dim}\u25cb${c.reset}`,
+    `${c.dim}\u25cb \u25cb${c.reset} ${c.cyan}\u25cf${c.reset}`,
+    `${c.dim}\u25cb${c.reset} ${c.cyan}\u25cf${c.reset} ${c.dim}\u25cb${c.reset}`,
+  ];
   let i = 0;
   const interval = setInterval(() => {
-    process.stdout.write(`\r  ${c.cyan}${frames[i % frames.length]}${c.reset} ${c.dim}${message}${c.reset}  `);
+    process.stdout.write(`\r  ${frames[i % frames.length]}  ${c.dim}${message}${c.reset}   `);
     i++;
-  }, 80);
+  }, 200);
 
   return {
     stop(result?: string): void {
@@ -234,34 +328,52 @@ function showSpinner(message: string): Spinner {
 }
 
 // ---------------------------------------------------------------------------
-// Format an action for display
+// Format an action for display — with action badges and icons
 // ---------------------------------------------------------------------------
 function formatAction(action: AgentAction): string {
   if (!action) return "";
   switch (action.type) {
     case "shell":
-      return `${c.yellow}Shell${c.reset} ${c.dim}\u2192${c.reset} ${c.bold}${action.command ?? ""}${c.reset}`;
+      return `\u26a1 ${c.yellow}${c.bold}shell${c.reset} ${c.dim}\u2192${c.reset} ${c.bold}${action.command ?? ""}${c.reset}`;
     case "capability": {
       const inputPreview = action.input
-        ? ` ${c.dim}${JSON.stringify(action.input).slice(0, 80)}${c.reset}`
+        ? ` ${c.dim}${JSON.stringify(action.input).slice(0, 60)}${c.reset}`
         : "";
-      return `${c.magenta}Capability${c.reset} ${c.dim}\u2192${c.reset} ${c.bold}${action.name ?? ""}${c.reset}${inputPreview}`;
+      return `\ud83d\udd0c ${c.magenta}${c.bold}capability${c.reset} ${c.dim}\u2192${c.reset} ${c.bold}${action.name ?? ""}${c.reset}${inputPreview}`;
     }
     case "file":
-      return `${c.blue}File${c.reset} ${c.dim}\u2192${c.reset} ${c.bold}${action.operation ?? ""}${c.reset} ${action.path ?? ""}`;
+      return `\ud83d\udcc4 ${c.blue}${c.bold}file${c.reset} ${c.dim}\u2192${c.reset} ${c.bold}${action.operation ?? ""}${c.reset} ${action.path ?? ""}`;
     case "spawn_agent":
-      return `${c.cyan}Sub-Agent${c.reset} ${c.dim}\u2192${c.reset} ${c.bold}${action.agentName ?? "agent"}${c.reset}: ${action.task ?? ""}`;
+      return `\ud83e\udd16 ${c.cyan}${c.bold}sub-agent${c.reset} ${c.dim}\u2192${c.reset} ${c.bold}${action.agentName ?? "agent"}${c.reset}: ${action.task ?? ""}`;
     case "message":
-      return `${c.green}Message${c.reset}`;
+      return `${c.green}${c.bold}message${c.reset}`;
     case "done":
-      return `${c.green}Done${c.reset}`;
+      return `${c.green}${c.bold}done${c.reset}`;
     default:
       return JSON.stringify(action);
   }
 }
 
 // ---------------------------------------------------------------------------
-// Render step output preview
+// Format action type badge for step boxes
+// ---------------------------------------------------------------------------
+function actionBadge(action: AgentAction): string {
+  switch (action.type) {
+    case "shell":
+      return `\u26a1 ${c.yellow}shell${c.reset} \u2192 ${c.bold}${action.command ?? ""}${c.reset}`;
+    case "capability":
+      return `\ud83d\udd0c ${c.magenta}capability${c.reset} \u2192 ${c.bold}${action.name ?? ""}${c.reset}`;
+    case "file":
+      return `\ud83d\udcc4 ${c.blue}file${c.reset} \u2192 ${c.bold}${action.operation ?? ""}${c.reset} ${c.dim}${action.path ?? ""}${c.reset}`;
+    case "spawn_agent":
+      return `\ud83e\udd16 ${c.cyan}sub-agent${c.reset} \u2192 ${c.bold}${action.agentName ?? ""}${c.reset}`;
+    default:
+      return action.type;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Render step output in a bordered box
 // ---------------------------------------------------------------------------
 function renderStepOutput(output: unknown): void {
   if (output == null) return;
@@ -272,9 +384,21 @@ function renderStepOutput(output: unknown): void {
     preview = String(output);
   }
   if (preview.length > 500) {
-    preview = preview.slice(0, 500) + "...";
+    preview = preview.slice(0, 500) + "\u2026";
   }
-  console.log(`  ${c.dim}${preview}${c.reset}\n`);
+
+  const outputLines = preview.split("\n").map((l) => `${c.dim}${l}${c.reset}`);
+  const outputBox = box(`${c.dim}Output${c.reset}`, outputLines, c.dim);
+  console.log(`${outputBox}\n`);
+}
+
+// ---------------------------------------------------------------------------
+// Format elapsed time nicely
+// ---------------------------------------------------------------------------
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms.toFixed(0)}ms`;
+  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
+  return `${(ms / 60000).toFixed(1)}m`;
 }
 
 // ---------------------------------------------------------------------------
@@ -290,6 +414,8 @@ async function runAgentLoop(
 
   while (true) {
     stepCount++;
+    sessionStepCount++;
+    const stepStart = Date.now();
     const spinner = showSpinner("Thinking...");
 
     let result: StepRecord;
@@ -298,9 +424,14 @@ async function runAgentLoop(
     } catch (err: unknown) {
       spinner.stop();
       const errMsg = err instanceof Error ? err.message : String(err);
-      console.log(`\n  ${c.red}${c.bold}Error:${c.reset} ${c.red}${errMsg}${c.reset}\n`);
+      const errBox = box(`${c.red}Error${c.reset}`, [
+        `${c.red}${errMsg}${c.reset}`,
+      ], c.red);
+      console.log(`\n${errBox}\n`);
       return;
     }
+
+    const stepElapsed = Date.now() - stepStart;
 
     // After the first step, subsequent steps should not re-send the user
     // message — the agent is continuing from its own prior output.
@@ -309,20 +440,37 @@ async function runAgentLoop(
     const actionType = result.action.type;
 
     if (actionType === "message" || actionType === "done") {
-      // Final answer — print it and return to prompt
-      spinner.stop(formatAction(result.action));
+      // Final answer — print it in a nice panel
+      spinner.stop();
       const text = result.action.text ?? "Task completed.";
-      console.log(`\n  ${c.bold}agent \u276f${c.reset} ${text}\n`);
+      const textLines = text.split("\n").map((l: string) => l);
+      const agentBox = box(`${c.green}Agent${c.reset}`, ["", ...textLines, ""], c.green);
+      console.log(`\n${agentBox}\n`);
       return;
     }
 
-    // Intermediate action — show what was done
-    spinner.stop(formatAction(result.action));
+    // Intermediate action — show in a step box
+    spinner.stop();
+
+    const thought = result.thought;
+    const stepLines: string[] = [];
+    if (thought) {
+      stepLines.push(`${c.dim}${c.italic}\ud83d\udcad ${thought}${c.reset}`);
+    }
+    stepLines.push(actionBadge(result.action));
+    stepLines.push(`${c.dim}\u23f1  ${formatDuration(stepElapsed)}${c.reset}`);
+
+    const stepBox = box(`${c.cyan}Step ${stepCount}${c.reset}`, stepLines, c.cyan);
+    console.log(`\n${stepBox}`);
+
     renderStepOutput(result.result?.output);
 
     // Guard against infinite loops
     if (stepCount >= maxSteps) {
-      console.log(`  ${c.yellow}Max steps (${maxSteps}) reached.${c.reset}\n`);
+      const maxBox = box(`${c.yellow}Warning${c.reset}`, [
+        `${c.yellow}Max steps (${maxSteps}) reached. Stopping.${c.reset}`,
+      ], c.yellow);
+      console.log(`${maxBox}\n`);
       return;
     }
   }
@@ -341,7 +489,7 @@ async function interactiveLoop(
   let loop = new AgentLoop(config, conv);
 
   const askPrompt = (): void => {
-    rl.question(`\n  ${c.green}${c.bold}you \u276f${c.reset} `, async (input: string) => {
+    rl.question(`\n  ${c.cyan}${c.bold}\u276f${c.reset} `, async (input: string) => {
       const trimmed = input.trim();
       if (!trimmed) {
         askPrompt();
@@ -359,10 +507,19 @@ async function interactiveLoop(
         switch (cmd) {
           case "exit":
           case "quit":
-          case "q":
-            console.log(`\n  ${c.cyan}${c.bold}Thanks for using WD Agent${c.reset} ${c.dim}\u2014 worthdoing.ai${c.reset}\n`);
+          case "q": {
+            const elapsed = formatDuration(Date.now() - sessionStartTime);
+            const exitBox = box(`${c.cyan}Goodbye${c.reset}`, [
+              "",
+              `${c.bold}Thanks for using WD Agent${c.reset}`,
+              `${c.dim}Session: ${sessionStepCount} steps in ${elapsed}${c.reset}`,
+              `${c.dim}worthdoing.ai${c.reset}`,
+              "",
+            ], c.cyan);
+            console.log(`\n${exitBox}\n`);
             process.exit(0);
             break;
+          }
 
           case "help":
             printHelp();
@@ -371,11 +528,14 @@ async function interactiveLoop(
           case "clear":
             clearScreen();
             printBanner();
+            printStatusBar(config, conv.meta.id);
             break;
 
           case "new":
             conv = convManager.create("New conversation");
             loop = new AgentLoop(config, conv);
+            currentSessionId = conv.meta.id;
+            sessionStepCount = 0;
             console.log(`\n  ${c.green}\u2713${c.reset} New conversation: ${c.dim}${conv.meta.id}${c.reset}`);
             break;
 
@@ -384,25 +544,27 @@ async function interactiveLoop(
             if (conversations.length === 0) {
               console.log(`\n  ${c.dim}No conversations yet.${c.reset}`);
             } else {
-              console.log(`\n  ${c.bold}Conversations:${c.reset}\n`);
-              for (const cv of conversations) {
+              const listLines = conversations.map((cv) => {
                 const isCurrent = cv.id === conv.meta.id;
                 const marker = isCurrent
                   ? `${c.green}\u25b6${c.reset}`
                   : cv.status === "active"
                     ? `${c.green}\u25cf${c.reset}`
                     : `${c.dim}\u25cb${c.reset}`;
-                console.log(
-                  `  ${marker} ${c.cyan}${cv.id}${c.reset}  ${c.bold}${cv.title}${c.reset}  ${c.dim}(${cv.steps} steps)${c.reset}`,
-                );
-              }
+                return `${marker} ${c.cyan}${cv.id}${c.reset} ${c.bold}${cv.title}${c.reset} ${c.dim}(${cv.steps} steps)${c.reset}`;
+              });
+              const listBox = box(`${c.blue}Conversations${c.reset}`, ["", ...listLines, ""], c.blue);
+              console.log(`\n${listBox}`);
             }
             break;
           }
 
           case "resume": {
             if (!cmdArgs[0]) {
-              console.log(`\n  ${c.red}Usage: /resume <conversation-id>${c.reset}`);
+              const errBox = box(`${c.red}Error${c.reset}`, [
+                `${c.red}Usage: /resume <conversation-id>${c.reset}`,
+              ], c.red);
+              console.log(`\n${errBox}`);
               break;
             }
             const loaded = convManager.load(cmdArgs[0]);
@@ -411,7 +573,10 @@ async function interactiveLoop(
               loop = new AgentLoop(config, conv);
               console.log(`\n  ${c.green}\u2713${c.reset} Resumed: ${c.bold}${conv.meta.title}${c.reset}`);
             } else {
-              console.log(`\n  ${c.red}Not found: ${cmdArgs[0]}${c.reset}`);
+              const errBox = box(`${c.red}Error${c.reset}`, [
+                `${c.red}Not found: ${cmdArgs[0]}${c.reset}`,
+              ], c.red);
+              console.log(`\n${errBox}`);
             }
             break;
           }
@@ -421,24 +586,22 @@ async function interactiveLoop(
             if (steps.length === 0) {
               console.log(`\n  ${c.dim}No steps yet.${c.reset}`);
             } else {
-              console.log(`\n  ${c.bold}Steps:${c.reset}\n`);
               const recentSteps = steps.slice(-10);
-              for (const s of recentSteps) {
-                const durationLabel = s.result.duration_ms.toFixed(0);
-                console.log(
-                  `  ${c.dim}#${s.step}${c.reset} ${formatAction(s.action)} ${c.dim}(${durationLabel}ms)${c.reset}`,
-                );
-              }
+              const stepLines = recentSteps.map((s) => {
+                const dur = formatDuration(s.result.duration_ms);
+                return `${c.dim}[${s.step}]${c.reset} ${formatAction(s.action)} ${c.dim}${dur}${c.reset}`;
+              });
+              const stepsBox = box(`${c.blue}Steps${c.reset}`, ["", ...stepLines, ""], c.blue);
+              console.log(`\n${stepsBox}`);
             }
             break;
           }
 
           case "caps": {
-            console.log(`\n  ${c.bold}Available Capabilities:${c.reset}\n`);
             const capList = loop.listCapabilities();
-            for (const cap of capList) {
-              console.log(`  ${c.cyan}\u25b8${c.reset} ${c.bold}${cap}${c.reset}`);
-            }
+            const capLines = capList.map((cap) => `${c.cyan}\u25b8${c.reset} ${c.bold}${cap}${c.reset}`);
+            const capsBox = box(`${c.magenta}Capabilities${c.reset}`, ["", ...capLines, ""], c.magenta);
+            console.log(`\n${capsBox}`);
             break;
           }
 
@@ -465,22 +628,27 @@ async function interactiveLoop(
 
           case "config": {
             const currentConfig = loadConfig();
-            console.log(`\n  ${c.bold}Configuration:${c.reset}\n`);
-            console.log(`  ${c.dim}Provider:${c.reset}    ${currentConfig.provider}`);
-            console.log(`  ${c.dim}Model:${c.reset}       ${currentConfig.model}`);
-            console.log(`  ${c.dim}Max Steps:${c.reset}   ${currentConfig.maxSteps}`);
-            console.log(`  ${c.dim}Confirm:${c.reset}     ${currentConfig.confirmShell}`);
-            console.log(
-              `  ${c.dim}Anthropic:${c.reset}   ${currentConfig.anthropicApiKey ? "\u2713 Set" : "\u2717 Not set"}`,
-            );
-            console.log(
-              `  ${c.dim}OpenRouter:${c.reset}  ${currentConfig.openrouterApiKey ? "\u2713 Set" : "\u2717 Not set"}`,
-            );
+            const configLines = [
+              "",
+              `${c.dim}Provider${c.reset}    ${c.bold}${currentConfig.provider}${c.reset}`,
+              `${c.dim}Model${c.reset}       ${c.bold}${currentConfig.model}${c.reset}`,
+              `${c.dim}Max Steps${c.reset}   ${c.bold}${currentConfig.maxSteps}${c.reset}`,
+              `${c.dim}Confirm${c.reset}     ${c.bold}${currentConfig.confirmShell}${c.reset}`,
+              `${c.dim}Anthropic${c.reset}   ${currentConfig.anthropicApiKey ? `${c.green}\u2713 Set${c.reset}` : `${c.red}\u2717 Not set${c.reset}`}`,
+              `${c.dim}OpenRouter${c.reset}  ${currentConfig.openrouterApiKey ? `${c.green}\u2713 Set${c.reset}` : `${c.red}\u2717 Not set${c.reset}`}`,
+              "",
+            ];
+            const configBox = box(`${c.yellow}Configuration${c.reset}`, configLines, c.yellow);
+            console.log(`\n${configBox}`);
             break;
           }
 
-          default:
-            console.log(`\n  ${c.red}Unknown command: /${cmd}${c.reset}`);
+          default: {
+            const errBox = box(`${c.red}Error${c.reset}`, [
+              `${c.red}Unknown command: /${cmd}${c.reset}`,
+            ], c.red);
+            console.log(`\n${errBox}`);
+          }
         }
 
         askPrompt();
@@ -508,7 +676,7 @@ async function main(): Promise<void> {
   // ---- Non-interactive commands ----
 
   if (args[0] === "version" || args[0] === "--version" || args[0] === "-v") {
-    console.log("wd-agent v0.1.0 by WorthDoing AI");
+    console.log(`${c.cyan}${c.bold}wd-agent${c.reset} ${c.dim}v0.1.0${c.reset} ${c.dim}by WorthDoing AI${c.reset}`);
     process.exit(0);
   }
 
@@ -551,14 +719,17 @@ async function main(): Promise<void> {
         });
       }
       config = loadConfig();
-      console.log(`\n  ${c.green}\u2713${c.reset} Configuration saved to ~/.wdagent/config.json\n`);
+      console.log(`\n  ${c.green}\u2713${c.reset} Configuration saved to ${c.dim}~/.wdagent/config.json${c.reset}\n`);
     } catch {
-      console.log(`\n  ${c.red}Setup failed. Exiting.${c.reset}\n`);
+      const errBox = box(`${c.red}Error${c.reset}`, [
+        `${c.red}Setup failed. Exiting.${c.reset}`,
+      ], c.red);
+      console.log(`\n${errBox}\n`);
       process.exit(1);
     }
   } else {
     const providerLabel = config.provider === "openrouter" ? "OpenRouter" : "Anthropic";
-    console.log(`  ${c.green}\u2713${c.reset} ${providerLabel} configured — model: ${c.bold}${config.model}${c.reset}\n`);
+    console.log(`  ${c.green}\u2713${c.reset} ${providerLabel} configured \u2014 model: ${c.bold}${config.model}${c.reset}\n`);
   }
 
   // ---- Conversation manager ----
@@ -569,9 +740,16 @@ async function main(): Promise<void> {
 
   if (args[0] === "run" && args.length > 1) {
     const task = args.slice(1).join(" ");
-    console.log(`  ${c.bold}Running task:${c.reset} ${task}\n`);
+    const taskBox = box(`${c.cyan}Task${c.reset}`, [
+      `${c.bold}${task}${c.reset}`,
+    ], c.cyan);
+    console.log(`${taskBox}\n`);
     const conv = convManager.create(task);
     const loop = new AgentLoop(config, conv);
+
+    // Show system info
+    const capsCount = loop.listCapabilities().length;
+    printSystemInfo(config, conv.meta.id, capsCount);
 
     await runAgentLoop(loop, task, config.maxSteps);
 
@@ -587,15 +765,13 @@ async function main(): Promise<void> {
     if (conversations.length === 0) {
       console.log(`  ${c.dim}No conversations yet.${c.reset}\n`);
     } else {
-      console.log(`  ${c.bold}Conversations:${c.reset}\n`);
-      for (const cv of conversations) {
+      const listLines = conversations.map((cv) => {
         const marker =
           cv.status === "active" ? `${c.green}\u25cf${c.reset}` : `${c.dim}\u25cb${c.reset}`;
-        console.log(
-          `  ${marker} ${c.cyan}${cv.id}${c.reset}  ${c.bold}${cv.title}${c.reset}  ${c.dim}(${cv.steps} steps)${c.reset}`,
-        );
-      }
-      console.log();
+        return `${marker} ${c.cyan}${cv.id}${c.reset} ${c.bold}${cv.title}${c.reset} ${c.dim}(${cv.steps} steps)${c.reset}`;
+      });
+      const listBox = box(`${c.blue}Conversations${c.reset}`, ["", ...listLines, ""], c.blue);
+      console.log(`${listBox}\n`);
     }
     process.exit(0);
   }
@@ -605,10 +781,19 @@ async function main(): Promise<void> {
   if (args[0] === "resume" && args[1]) {
     const conv = convManager.load(args[1]);
     if (!conv) {
-      console.log(`  ${c.red}Conversation not found: ${args[1]}${c.reset}\n`);
+      const errBox = box(`${c.red}Error${c.reset}`, [
+        `${c.red}Conversation not found: ${args[1]}${c.reset}`,
+      ], c.red);
+      console.log(`${errBox}\n`);
       process.exit(1);
     }
     console.log(`  ${c.green}\u2713${c.reset} Resumed conversation: ${c.bold}${conv.meta.title}${c.reset}\n`);
+
+    // Show system info
+    const tempLoop = new AgentLoop(config, conv);
+    const capsCount = tempLoop.listCapabilities().length;
+    printSystemInfo(config, conv.meta.id, capsCount);
+
     await interactiveLoop(rl, config, convManager, conv);
     return;
   }
@@ -616,8 +801,14 @@ async function main(): Promise<void> {
   // ---- Default: new interactive session ----
 
   const conv = convManager.create("New conversation");
-  console.log(`  ${c.dim}Conversation: ${conv.meta.id}${c.reset}`);
-  console.log(`  ${c.dim}Type /help for commands, or just start chatting.${c.reset}\n`);
+  currentSessionId = conv.meta.id;
+  sessionStartTime = Date.now();
+  sessionStepCount = 0;
+
+  // Show system info with capabilities count
+  const tempLoop = new AgentLoop(config, conv);
+  const capsCount = tempLoop.listCapabilities().length;
+  printSystemInfo(config, conv.meta.id, capsCount);
 
   await interactiveLoop(rl, config, convManager, conv);
 }
@@ -626,6 +817,9 @@ async function main(): Promise<void> {
 // Entry point
 // ---------------------------------------------------------------------------
 main().catch((err: unknown) => {
-  console.error("Fatal error:", err);
+  const errBox = box(`${c.red}Fatal Error${c.reset}`, [
+    `${c.red}${err instanceof Error ? err.message : String(err)}${c.reset}`,
+  ], c.red);
+  console.error(errBox);
   process.exit(1);
 });
